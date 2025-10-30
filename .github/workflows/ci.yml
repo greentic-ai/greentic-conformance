@@ -34,7 +34,7 @@ jobs:
   online:
     name: Online Checks
     needs: checks
-    if: env.GREENTIC_ENABLE_ONLINE == 'true'
+    if: ${{ env.GREENTIC_ENABLE_ONLINE == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
