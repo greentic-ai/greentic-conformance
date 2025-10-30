@@ -32,13 +32,27 @@ jobs:
   crate:
     name: Publish Crate
     runs-on: ubuntu-latest
-    if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     needs: checks
     steps:
+      - name: Detect publish token
+        id: token
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "CARGO_REGISTRY_TOKEN secret is not configured; skipping publish."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.token.outputs.present == 'true'
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.token.outputs.present == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.token.outputs.present == 'true'
       - name: Ensure tag matches crate version
+        if: steps.token.outputs.present == 'true'
         id: version
         run: |
           metadata=$(cargo metadata --no-deps --format-version 1)
@@ -56,6 +70,7 @@ jobs:
           fi
           echo "crate_version=$crate_version" >> "$GITHUB_OUTPUT"
       - name: cargo publish
+        if: steps.token.outputs.present == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' }}
