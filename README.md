@@ -121,4 +121,4 @@ CI enforces all three commands. Online checks can be enabled via repository or e
 
 ## License
 
-Licensed under the [MIT License](LICENSE). Contributions are welcome under the same terms.
+Licensed under the [MIT License](LICENSE). Contributions are welcome under the same terms. 
