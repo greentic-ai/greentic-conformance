@@ -1,0 +1,10 @@
+version: "3.8"
+services:
+  mock-oidc:
+    image: ghcr.io/zitadel/oidc-mock:latest
+    ports:
+      - "8089:8080"
+    environment:
+      ISSUER_CONFIG_PATH: /config/issuer.json
+    volumes:
+      - ./config:/config:ro

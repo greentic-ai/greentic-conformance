@@ -3,7 +3,8 @@ name = "greentic-conformance"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Reusable conformance suites for Greentic packs, flows, runners, and components."
+publish = false
+description = "Reusable conformance suites for Greentic (pack/runner/policy/oauth)"
 readme = "README.md"
 
 [lib]
@@ -15,9 +16,30 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+base64 = "0.21"
 walkdir = "2"
+
+greentic-types = { version = ">=0.1, <1" }
+greentic-interfaces = { version = ">=0.1, <1" }
+greentic-runner = { version = ">=0.1, <1", optional = true }
+greentic-pack = { version = ">=0.1, <1", optional = true }
+greentic-secrets = { version = ">=0.1, <1", optional = true }
+greentic-oauth = { version = ">=0.1, <1", optional = true }
+
+[features]
+default = ["runner", "policy", "oauth"]
+runner = ["greentic-runner", "greentic-pack"]
+policy = ["greentic-secrets"]
+oauth = ["greentic-oauth"]
 
 [dev-dependencies]
 assert_cmd = "2"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+handlebars = "4"
+rand = "0.8"
 serde_json = "1"
 tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

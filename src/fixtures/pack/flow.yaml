@@ -1,0 +1,27 @@
+id: "echo-flow"
+nodes:
+  - id: "receive"
+    kind: "message.receive"
+  - id: "echo"
+    kind: "tool.invoke"
+    with:
+      name: "echo"
+      input:
+        text: "{{input.text}}"
+  - id: "render"
+    kind: "template.render"
+    with:
+      template: "templates/echo.hbs"
+      context:
+        text: "{{state.echo.text}}"
+  - id: "send"
+    kind: "message.send"
+    with:
+      text: "{{rendered}}"
+edges:
+  - from: "receive"
+    to: "echo"
+  - from: "echo"
+    to: "render"
+  - from: "render"
+    to: "send"

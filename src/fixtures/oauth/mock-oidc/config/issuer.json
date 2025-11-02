@@ -1,0 +1,8 @@
+{
+  "issuer": "http://localhost:8089",
+  "client_id": "conformance-client",
+  "client_secret": "local-secret",
+  "scopes": ["openid", "profile"],
+  "redirect_uris": ["http://localhost:8787/callback"],
+  "token_endpoint_auth_method": "client_secret_post"
+}

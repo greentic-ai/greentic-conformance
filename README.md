@@ -2,6 +2,63 @@
 
 Reusable conformance harness for Greentic packs, flows, runners, and components. The crate exposes ergonomic helpers that downstream projects can import to standardise validation logic while keeping the actual runtime integrations local to the project under test.
 
+## Conformance Suites
+
+- **Pack & Runner (`tests/pack_runner.rs`)** – builds the demo pack from `src/fixtures/pack`, signs it with Ed25519, enforces signature requirements (unless `ALLOW_UNSIGNED=true`), and exercises a simple echo flow end-to-end.
+- **Policy (`tests/policy.rs`)** – validates tenant-scoped secrets access, idempotent outbox semantics, and retry backoff schedules.
+- **OAuth (`tests/oauth.rs`)** – checks provider manifests/discovery data and, when `CI_ENABLE_OAUTH=true`, can drive a mock OIDC flow powered by the optional Docker fixtures.
+
+Each suite shares helper modules:
+
+- `env.rs` – consistent parsing of multi-tenant IDs and CI feature flags (`CI_ENABLE_VAULT`, `CI_ENABLE_AWS`, `CI_ENABLE_GCP`, `CI_ENABLE_OAUTH`, `ALLOW_UNSIGNED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `TENANT_ID`, `TEAM_ID`, `USER_ID`).
+- `assertions.rs` – reusable `assert_signed_pack`, `assert_idempotent_send`, and `assert_span_attrs` helpers.
+- `src/fixtures/` – demo pack, signing utility, and optional mock OIDC stack.
+
+Run a specific suite (for example in runner/pack repos):
+
+```bash
+cargo test -p greentic-conformance --test pack_runner --features runner -- --nocapture
+```
+
+Policy- and OAuth-specific suites can be targeted with `--test policy --features policy` and `--test oauth --features oauth`.
+
+## Environment Flags
+
+- `TENANT_ID`, `TEAM_ID`, `USER_ID` – required in CI; local defaults (`local-*`) provided for convenience.
+- `CI_ENABLE_VAULT`, `CI_ENABLE_AWS`, `CI_ENABLE_GCP` – toggle provider-specific policy checks.
+- `CI_ENABLE_OAUTH` – enables the live OAuth flow using the mock OIDC stack (discovery tests run regardless).
+- `ALLOW_UNSIGNED` – opt-in flag to accept unsigned packs during local development.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` – optional telemetry sink; when set, span assertions expect `{tenant, session, flow, node, provider}` attributes.
+
+## CI Integration
+
+Example downstream jobs:
+
+```yaml
+- name: Conformance (pack+runner)
+  run: cargo test -p greentic-conformance --test pack_runner --features runner -- --nocapture
+  env:
+    TENANT_ID: acme
+    TEAM_ID: dev
+    USER_ID: tester
+    ALLOW_UNSIGNED: "false"
+
+- name: Conformance (policy)
+  run: cargo test -p greentic-conformance --test policy --features policy -- --nocapture
+  env:
+    TENANT_ID: acme
+    CI_ENABLE_VAULT: "true"
+    CI_ENABLE_AWS: "false"
+    CI_ENABLE_GCP: "false"
+
+- name: Conformance (oauth – discovery only)
+  run: cargo test -p greentic-conformance --test oauth --features oauth -- --nocapture
+  env:
+    CI_ENABLE_OAUTH: "false"
+```
+
+When `CI_ENABLE_OAUTH=true`, add another job guarded by `if: env.CI_ENABLE_OAUTH == 'true'` to execute the live mock flow.
+
 ## What It Covers
 
 - **Pack suite** – Ensures pack assets ship a manifest with a signature and enumerated flows.
@@ -118,6 +175,13 @@ The suites never enable network access implicitly. To opt-in for online checks (
 - `cargo test` – run the local test suite (no online access)
 
 CI enforces all three commands. Online checks can be enabled via repository or environment configuration (see `.github/workflows/ci.yml`).
+
+## Releases & Publishing
+
+- Versions are sourced from each crate’s `Cargo.toml`.
+- Pushing to `master` auto-tags crates whose versions changed using `<crate>-v<version>`.
+- The publish workflow then pushes updated crates to crates.io.
+- Publishing is idempotent and succeeds even when versions already exist.
 
 ## License
 

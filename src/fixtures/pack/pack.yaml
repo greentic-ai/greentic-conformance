@@ -1,0 +1,8 @@
+name: "conformance-demo"
+version: "0.1.0"
+flows:
+  - id: "echo-flow"
+    path: "flow.yaml"
+toolmap: "toolmap.json"
+templates:
+  - path: "templates/echo.hbs"

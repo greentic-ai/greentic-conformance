@@ -2,45 +2,23 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - feat/init-conformance-suites
-  pull_request:
+    branches: [ master ]
+  pull_request: {}
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
-  GREENTIC_ENABLE_ONLINE: ${{ vars.GREENTIC_ENABLE_ONLINE || 'false' }}
 
 jobs:
-  checks:
-    name: Lint & Test
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: cargo fmt
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test
-        env:
-          GREENTIC_ENABLE_ONLINE: "0"
-        run: cargo test --all-targets --all-features
-
-  online:
-    name: Online Checks
-    needs: checks
-    if: ${{ vars.GREENTIC_ENABLE_ONLINE == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo test (online)
-        env:
-          GREENTIC_ENABLE_ONLINE: "1"
-        run: cargo test --all-targets --all-features -- --ignored
+        run: cargo test --workspace --all-features -- --nocapture
