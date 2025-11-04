@@ -4,60 +4,73 @@ Reusable conformance harness for Greentic packs, flows, runners, and components.
 
 ## Conformance Suites
 
-- **Pack & Runner (`tests/pack_runner.rs`)** – builds the demo pack from `src/fixtures/pack`, signs it with Ed25519, enforces signature requirements (unless `ALLOW_UNSIGNED=true`), and exercises a simple echo flow end-to-end.
-- **Policy (`tests/policy.rs`)** – validates tenant-scoped secrets access, idempotent outbox semantics, and retry backoff schedules.
-- **OAuth (`tests/oauth.rs`)** – checks provider manifests/discovery data and, when `CI_ENABLE_OAUTH=true`, can drive a mock OIDC flow powered by the optional Docker fixtures.
+Typed harness modules live under `greentic_conformance::suites` so any Greentic repository can compose the same conformance logic:
 
-Each suite shares helper modules:
+- `suites::pack_runner` wraps pack validation and optional runner smoke tests behind `PackRunnerSuiteConfig` and `run_suite`.
+- `suites::policy` validates allow-listed secrets, idempotent sends, and retry schedules via `PolicySuiteConfig`.
+- `suites::oauth` embeds a deterministic Rust mock OIDC provider and optionally exercises live providers when `OAuthSuiteConfig` is configured with credentials.
 
-- `env.rs` – consistent parsing of multi-tenant IDs and CI feature flags (`CI_ENABLE_VAULT`, `CI_ENABLE_AWS`, `CI_ENABLE_GCP`, `CI_ENABLE_OAUTH`, `ALLOW_UNSIGNED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `TENANT_ID`, `TEAM_ID`, `USER_ID`).
+The integration tests in `tests/pack_runner.rs`, `tests/policy.rs`, and `tests/oauth.rs` show how to drive each suite; downstream projects can copy those files verbatim or call the harness directly from their own tests.
+
+All suites continue to share the common helpers:
+
+- `env.rs` – consistent parsing of multi-tenant IDs and CI feature flags (`CI_ENABLE_VAULT`, `CI_ENABLE_AWS`, `CI_ENABLE_GCP`, `CI_ENABLE_OAUTH_MOCK`, `CI_ENABLE_OAUTH_LIVE`, `CI_DISABLE_OAUTH_MOCK`, `ALLOW_UNSIGNED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `TENANT_ID`, `TEAM_ID`, `USER_ID`).
 - `assertions.rs` – reusable `assert_signed_pack`, `assert_idempotent_send`, and `assert_span_attrs` helpers.
-- `src/fixtures/` – demo pack, signing utility, and optional mock OIDC stack.
+- `src/fixtures/` – demo pack, signing utility, and the embedded mock OIDC stack.
 
-Run a specific suite (for example in runner/pack repos):
+Typical harness usage:
 
-```bash
-cargo test -p greentic-conformance --test pack_runner --features runner -- --nocapture
+```rust
+use greentic_conformance::suites::pack_runner::{run_suite, PackRunnerSuiteConfig};
+
+#[test]
+fn pack_manifest_is_signed() {
+    let report = run_suite(PackRunnerSuiteConfig::new("./packs/example/pack.manifest.json"))
+        .expect("pack suite to succeed");
+    assert!(report.pack_report.manifest.signature.is_some());
+}
+
+use greentic_conformance::suites::policy::{run_suite as run_policy_suite, PolicySuiteConfig};
+
+#[test]
+fn policy_contracts_hold() {
+    let report = run_policy_suite(PolicySuiteConfig::demonstration()).unwrap();
+    assert!(report.duplicate_detected);
+}
+
+use greentic_conformance::suites::oauth::{run_suite as run_oauth_suite, OAuthSuiteConfig};
+
+#[tokio::test]
+async fn oauth_mock_flow() {
+    let config = OAuthSuiteConfig { run_mock: true, run_live: false, live_providers: Vec::new() };
+    let report = run_oauth_suite(config).await.unwrap();
+    assert!(report
+        .outcomes
+        .iter()
+        .any(|outcome| outcome.name == "oauth:mock"));
+}
 ```
-
-Policy- and OAuth-specific suites can be targeted with `--test policy --features policy` and `--test oauth --features oauth`.
 
 ## Environment Flags
 
 - `TENANT_ID`, `TEAM_ID`, `USER_ID` – required in CI; local defaults (`local-*`) provided for convenience.
 - `CI_ENABLE_VAULT`, `CI_ENABLE_AWS`, `CI_ENABLE_GCP` – toggle provider-specific policy checks.
-- `CI_ENABLE_OAUTH` – enables the live OAuth flow using the mock OIDC stack (discovery tests run regardless).
 - `ALLOW_UNSIGNED` – opt-in flag to accept unsigned packs during local development.
+- `CI_DISABLE_OAUTH_MOCK` – skip the embedded mock OIDC provider even when the OAuth suite runs.
+- `CI_ENABLE_OAUTH_MOCK` / `CI_ENABLE_OAUTH` – force the mock OAuth checks on in CI runs.
+- `CI_ENABLE_OAUTH_LIVE` – enable the live provider lane when credentials are present.
+- `OAUTH_{PROVIDER}_{CLIENT_ID,CLIENT_SECRET,REDIRECT_URI}` – provider specific secrets for Google, Microsoft, or GitHub (for example `OAUTH_GOOGLE_CLIENT_ID`). Optional overrides exist for `AUTH_URL`, `TOKEN_URL`, and `SCOPES`.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` – optional telemetry sink; when set, span assertions expect `{tenant, session, flow, node, provider}` attributes.
 
 ## CI Integration
 
-Example downstream jobs:
+The default workflow runs a three-lane matrix:
 
-```yaml
-- name: Conformance (pack+runner)
-  run: cargo test -p greentic-conformance --test pack_runner --features runner -- --nocapture
-  env:
-    TENANT_ID: acme
-    TEAM_ID: dev
-    USER_ID: tester
-    ALLOW_UNSIGNED: "false"
+- `unit` – `cargo fmt`, `cargo clippy`, and `cargo test --workspace --all-features`.
+- `oauth-mock` – targeted `cargo test --test oauth` with the embedded provider.
+- `oauth-live` – re-runs the OAuth suite with `CI_ENABLE_OAUTH_LIVE=1` when any live provider secrets are present (`OAUTH_*_CLIENT_ID`).
 
-- name: Conformance (policy)
-  run: cargo test -p greentic-conformance --test policy --features policy -- --nocapture
-  env:
-    TENANT_ID: acme
-    CI_ENABLE_VAULT: "true"
-    CI_ENABLE_AWS: "false"
-    CI_ENABLE_GCP: "false"
-
-- name: Conformance (oauth – discovery only)
-  run: cargo test -p greentic-conformance --test oauth --features oauth -- --nocapture
-  env:
-    CI_ENABLE_OAUTH: "false"
-```
-
-When `CI_ENABLE_OAUTH=true`, add another job guarded by `if: env.CI_ENABLE_OAUTH == 'true'` to execute the live mock flow.
+Downstream repositories can mirror the same lanes or mix-and-match harness calls. Extra provider secrets can be injected with the environment keys listed above; when no credentials are available the live lane is skipped automatically.
 
 ## What It Covers
 

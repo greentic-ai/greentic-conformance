@@ -1,17 +1,17 @@
 #![cfg(feature = "runner")]
 
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use greentic_conformance::assertions::{self, SpanRecord};
-use greentic_conformance::env::{bool_flag, TenantContext};
 use greentic_conformance::fixtures::pack::{ECHO_TEMPLATE, FLOW_YAML, MANIFEST_YAML};
+use greentic_conformance::suites::pack_runner::{PackRunnerSuiteConfig, run_suite};
 use handlebars::Handlebars;
 use rand::rngs::OsRng;
-use serde_json::json;
-use serde_json::Value;
-use serde_yaml::from_str as from_yaml;
-use std::collections::HashMap;
+use serde_json::{Value, json};
+use serde_yaml_bw::from_str as from_yaml;
+use std::{collections::HashMap, fs};
+use tempfile::tempdir;
 
 fn sign_manifest(manifest: &Value) -> Result<Value> {
     let mut manifest = manifest.clone();
@@ -34,36 +34,37 @@ fn sign_manifest(manifest: &Value) -> Result<Value> {
     Ok(manifest)
 }
 
-#[tokio::test]
-async fn build_and_sign_pack() -> Result<()> {
+#[test]
+fn pack_suite_runs_with_signed_fixture() -> Result<()> {
     let manifest: Value = from_yaml(MANIFEST_YAML)?;
     let signed = sign_manifest(&manifest)?;
 
-    assertions::assert_signed_pack(&signed)?;
+    let temp = tempdir()?;
+    let manifest_path = temp.path().join("pack.manifest.json");
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&signed)?)?;
+
+    let report = run_suite(PackRunnerSuiteConfig::new(&manifest_path))?;
+    assert!(report.pack_report.manifest.signature.is_some());
+    assert_eq!(report.pack_report.manifest.flows.len(), 1);
+
     Ok(())
 }
 
-#[tokio::test]
-async fn runner_loads_signed_pack() -> Result<()> {
-    let tenant = TenantContext::detect()?;
-    assert!(!tenant.tenant_id.is_empty());
-
+#[test]
+fn pack_suite_allows_unsigned_when_configured() -> Result<()> {
     let unsigned: Value = from_yaml(MANIFEST_YAML)?;
-    assert!(assertions::assert_signed_pack(&unsigned).is_err());
+    let temp = tempdir()?;
+    let manifest_path = temp.path().join("pack.manifest.json");
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&unsigned)?)?;
 
-    let signed = sign_manifest(&unsigned)?;
-    assertions::assert_signed_pack(&signed)?;
-
-    // Simulate ALLOW_UNSIGNED override for local workflows.
-    std::env::set_var("ALLOW_UNSIGNED", "true");
-    assert!(bool_flag("ALLOW_UNSIGNED"));
-    std::env::remove_var("ALLOW_UNSIGNED");
+    let report = run_suite(PackRunnerSuiteConfig::new(&manifest_path).allow_unsigned())?;
+    assert!(report.pack_report.manifest.signature.is_none());
 
     Ok(())
 }
 
-#[tokio::test]
-async fn run_simple_flow_end_to_end() -> Result<()> {
+#[test]
+fn flow_fixture_renders_and_spans_validate() -> Result<()> {
     let flow: Value = from_yaml(FLOW_YAML)?;
     let nodes = flow
         .get("nodes")

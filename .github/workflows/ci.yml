@@ -10,15 +10,54 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  conformance:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [unit, oauth-mock, oauth-live]
+        include:
+          - lane: oauth-live
+            run_live: true
+    env:
+      OAUTH_GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+      OAUTH_GOOGLE_REDIRECT_URI: ${{ secrets.OAUTH_GOOGLE_REDIRECT_URI }}
+      OAUTH_MICROSOFT_CLIENT_ID: ${{ secrets.OAUTH_MICROSOFT_CLIENT_ID }}
+      OAUTH_MICROSOFT_CLIENT_SECRET: ${{ secrets.OAUTH_MICROSOFT_CLIENT_SECRET }}
+      OAUTH_MICROSOFT_REDIRECT_URI: ${{ secrets.OAUTH_MICROSOFT_REDIRECT_URI }}
+      OAUTH_GITHUB_CLIENT_ID: ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
+      OAUTH_GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+      OAUTH_GITHUB_REDIRECT_URI: ${{ secrets.OAUTH_GITHUB_REDIRECT_URI }}
+    if: matrix.lane != 'oauth-live' || env.OAUTH_GOOGLE_CLIENT_ID != '' || env.OAUTH_MICROSOFT_CLIENT_ID != '' || env.OAUTH_GITHUB_CLIENT_ID != ''
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+
       - name: cargo fmt
+        if: matrix.lane == 'unit'
         run: cargo fmt --all -- --check
+
       - name: cargo clippy
+        if: matrix.lane == 'unit'
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: cargo test
+
+      - name: cargo test (workspace)
+        if: matrix.lane == 'unit'
         run: cargo test --workspace --all-features -- --nocapture
+
+      - name: cargo test (oauth mock)
+        if: matrix.lane == 'oauth-mock'
+        env:
+          CI_ENABLE_OAUTH_MOCK: "1"
+        run: cargo test --test oauth --features oauth -- --nocapture
+
+      - name: cargo test (oauth live)
+        if: matrix.lane == 'oauth-live'
+        env:
+          CI_ENABLE_OAUTH_LIVE: "1"
+        run: cargo test --test oauth --features oauth -- --nocapture

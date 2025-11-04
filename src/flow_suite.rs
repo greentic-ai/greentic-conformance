@@ -5,8 +5,9 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_yaml_bw as serde_yaml;
 use walkdir::WalkDir;
 
 /// Options that tweak flow validation behaviour.

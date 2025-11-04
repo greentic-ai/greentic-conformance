@@ -1,7 +1,7 @@
 mod common;
 
 use common::TempBinary;
-use greentic_conformance::{invoke_generic_component, ComponentInvocationOptions};
+use greentic_conformance::{ComponentInvocationOptions, invoke_generic_component};
 
 const COMPONENT_SOURCE: &str = r#"
 use std::{env, io::{self, Read}};

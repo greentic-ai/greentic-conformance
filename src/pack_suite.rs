@@ -5,8 +5,9 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_yaml_bw as serde_yaml;
 
 /// Adapter that knows how to interrogate a pack component at runtime.
 pub trait PackRuntimeAdapter: Send + Sync {
@@ -33,6 +34,8 @@ pub struct PackSuiteOptions {
     pub runtime_adapter: Option<Arc<dyn PackRuntimeAdapter>>,
     /// Fail verification if runtime exports diverge from the manifest.
     pub require_runtime_match: bool,
+    /// Fail when the manifest does not contain a signature block.
+    pub require_signature: bool,
 }
 
 impl Default for PackSuiteOptions {
@@ -42,6 +45,7 @@ impl Default for PackSuiteOptions {
             require_flows: true,
             runtime_adapter: None,
             require_runtime_match: true,
+            require_signature: true,
         }
     }
 }
@@ -60,6 +64,7 @@ impl std::fmt::Debug for PackSuiteOptions {
                 },
             )
             .field("require_runtime_match", &self.require_runtime_match)
+            .field("require_signature", &self.require_signature)
             .finish()
     }
 }
@@ -67,9 +72,19 @@ impl std::fmt::Debug for PackSuiteOptions {
 /// Manifest describing a Greentic pack component.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PackManifest {
-    pub signature: String,
+    #[serde(default)]
+    pub signature: Option<PackSignature>,
     #[serde(default)]
     pub flows: Vec<PackExport>,
+}
+
+/// Signature block describing the pack provenance.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PackSignature {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub public_key: String,
+    pub signature: String,
 }
 
 /// Basic metadata for a flow exported by the pack.
@@ -123,7 +138,7 @@ impl PackSuiteOptions {
             })?
         };
 
-        validate_manifest(&manifest, self.require_flows)
+        validate_manifest(&manifest, self.require_flows, self.require_signature)
             .with_context(|| format!("manifest {}", manifest_path.display()))?;
 
         let runtime_flows = if let Some(adapter) = &self.runtime_adapter {
@@ -166,6 +181,12 @@ impl PackSuiteOptions {
     /// Allows diverging runtime exports without failing verification.
     pub fn allow_runtime_mismatch(mut self) -> Self {
         self.require_runtime_match = false;
+        self
+    }
+
+    /// Allows manifests without signatures (useful for local development).
+    pub fn allow_unsigned(mut self) -> Self {
+        self.require_signature = false;
         self
     }
 }
@@ -238,9 +259,23 @@ pub fn resolve_pack_manifest(component_path: &Path, options: &PackSuiteOptions) 
     );
 }
 
-fn validate_manifest(manifest: &PackManifest, require_flows: bool) -> Result<()> {
-    if manifest.signature.trim().is_empty() {
-        bail!("pack signature must be a non-empty string");
+fn validate_manifest(
+    manifest: &PackManifest,
+    require_flows: bool,
+    require_signature: bool,
+) -> Result<()> {
+    if require_signature {
+        match manifest.signature.as_ref() {
+            Some(sig) => {
+                if sig.kind.trim().is_empty()
+                    || sig.public_key.trim().is_empty()
+                    || sig.signature.trim().is_empty()
+                {
+                    bail!("pack manifest signature block is incomplete");
+                }
+            }
+            None => bail!("pack manifest missing signature block"),
+        }
     }
 
     if require_flows && manifest.flows.is_empty() {

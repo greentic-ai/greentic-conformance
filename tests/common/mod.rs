@@ -23,7 +23,7 @@ impl TempBinary {
 
         let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
         let status = Command::new(rustc)
-            .arg("--edition=2021")
+            .arg("--edition=2024")
             .arg(&src_path)
             .arg("-o")
             .arg(&bin_path)

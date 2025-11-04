@@ -1,4 +1,4 @@
-use greentic_conformance::{verify_pack_exports, PackExport, PackManifest, PackSuiteOptions};
+use greentic_conformance::{PackExport, PackManifest, PackSuiteOptions, verify_pack_exports};
 use std::{fs::File, io::Write};
 use tempfile::tempdir;
 
