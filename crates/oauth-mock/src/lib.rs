@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::Arc,
-    time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -44,11 +43,19 @@ struct Jwk {
     e: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct SigningKeys {
     encoding: jsonwebtoken::EncodingKey,
     decoding: jsonwebtoken::DecodingKey,
     jwk: Jwk,
+}
+
+impl std::fmt::Debug for SigningKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigningKeys")
+            .field("jwk", &self.jwk)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -579,10 +586,11 @@ async fn handle_authorization_code(
         .cloned()
         .ok_or_else(|| MockError::invalid_client("unknown client"))?;
 
+    let scope = entry.scope.clone();
     let issued_at = OffsetDateTime::now_utc();
-    let access_token = issue_access_token(&state_guard, &client, &entry.scope, issued_at)?;
-    let id_token = issue_id_token(&state_guard, &client, &entry.scope, issued_at, entry.nonce)?;
-    let refresh_token = issue_refresh_token(&mut state_guard, &client, &entry.scope, issued_at)?;
+    let access_token = issue_access_token(&state_guard, &client, &scope, issued_at)?;
+    let id_token = issue_id_token(&state_guard, &client, &scope, issued_at, entry.nonce)?;
+    let refresh_token = issue_refresh_token(&mut state_guard, &client, &scope, issued_at)?;
     state_guard.access_tokens.insert(access_token.clone());
 
     Ok(Json(json!({
@@ -590,7 +598,7 @@ async fn handle_authorization_code(
         "expires_in": 3600,
         "access_token": access_token,
         "id_token": id_token,
-        "scope": scope_to_string(&entry.scope),
+        "scope": scope_to_string(&scope),
         "refresh_token": refresh_token,
     })))
 }
@@ -659,11 +667,11 @@ async fn handle_refresh_token(
         .cloned()
         .ok_or_else(|| MockError::invalid_client("unknown client"))?;
 
+    let scope = entry.scope.clone();
     let issued_at = OffsetDateTime::now_utc();
     let access_token = issue_access_token(&state_guard, &client, &entry.scope, issued_at)?;
-    let id_token = issue_id_token(&state_guard, &client, &entry.scope, issued_at, None)?;
-    let new_refresh_token =
-        issue_refresh_token(&mut state_guard, &client, &entry.scope, issued_at)?;
+    let id_token = issue_id_token(&state_guard, &client, &scope, issued_at, None)?;
+    let new_refresh_token = issue_refresh_token(&mut state_guard, &client, &scope, issued_at)?;
     state_guard.access_tokens.insert(access_token.clone());
 
     Ok(Json(json!({
@@ -671,7 +679,7 @@ async fn handle_refresh_token(
         "expires_in": 3600,
         "access_token": access_token,
         "id_token": id_token,
-        "scope": scope_to_string(&entry.scope),
+        "scope": scope_to_string(&scope),
         "refresh_token": new_refresh_token,
     })))
 }
@@ -687,12 +695,13 @@ async fn handle_device_code(
         .ok_or_else(|| MockError::invalid_request("missing device_code"))?;
 
     let mut state_guard = state.write().await;
-    let entry = state_guard
+    let mut entry = state_guard
         .device_codes
-        .get_mut(device_code)
+        .remove(device_code)
         .ok_or_else(|| MockError::invalid_grant("invalid device_code"))?;
 
     if entry.client_id != credentials.client_id {
+        state_guard.device_codes.insert(device_code.clone(), entry);
         return Err(MockError::invalid_client("client mismatch for device_code"));
     }
 
@@ -700,7 +709,7 @@ async fn handle_device_code(
         entry.status = DeviceCodeStatus::Expired;
     }
 
-    match &mut entry.status {
+    let result = match &mut entry.status {
         DeviceCodeStatus::Pending { poll_count } => {
             *poll_count += 1;
             if *poll_count % 3 == 0 {
@@ -734,7 +743,10 @@ async fn handle_device_code(
         DeviceCodeStatus::Denied => Err(MockError::access_denied()),
         DeviceCodeStatus::Expired => Err(MockError::expired_token()),
         DeviceCodeStatus::Completed => Err(MockError::invalid_grant("device_code already used")),
-    }
+    };
+
+    state_guard.device_codes.insert(device_code.clone(), entry);
+    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -902,7 +914,8 @@ fn extract_client_credentials(
             .to_str()
             .map_err(|_| MockError::invalid_client("invalid Authorization header"))?;
         if let Some(encoded) = auth.strip_prefix("Basic ") {
-            let decoded = base64::decode(encoded)
+            let decoded = URL_SAFE_NO_PAD
+                .decode(encoded)
                 .map_err(|_| MockError::invalid_client("invalid basic auth"))?;
             let decoded = String::from_utf8(decoded)
                 .map_err(|_| MockError::invalid_client("invalid utf8 basic auth"))?;
@@ -946,7 +959,7 @@ fn issue_access_token(
     scope: &HashSet<String>,
     issued_at: OffsetDateTime,
 ) -> Result<String, MockError> {
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize)]
     struct AccessClaims<'a> {
         iss: &'a str,
         sub: &'a str,
@@ -988,7 +1001,7 @@ fn issue_id_token(
     issued_at: OffsetDateTime,
     nonce: Option<String>,
 ) -> Result<String, MockError> {
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize)]
     struct IdClaims<'a> {
         iss: &'a str,
         sub: &'a str,
@@ -1074,7 +1087,8 @@ fn verify_code_challenge(verifier: &str, expected_challenge: &str) -> Result<boo
 }
 
 fn generate_signing_keys() -> Result<SigningKeys> {
-    use rsa::{PublicKeyParts, RsaPrivateKey, pkcs1::EncodeRsaPrivateKey};
+    use rsa::traits::PublicKeyParts;
+    use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey};
 
     let mut rng = rand::thread_rng();
     let private_key = RsaPrivateKey::new(&mut rng, 2048).context("generate RSA key")?;
@@ -1088,7 +1102,8 @@ fn generate_signing_keys() -> Result<SigningKeys> {
     let decoding = jsonwebtoken::DecodingKey::from_rsa_components(
         &URL_SAFE_NO_PAD.encode(public_key.n().to_bytes_be()),
         &URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be()),
-    );
+    )
+    .context("create decoding key")?;
 
     let jwk = Jwk {
         kty: "RSA".into(),

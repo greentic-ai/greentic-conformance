@@ -2,11 +2,51 @@
 members = ["crates/oauth-mock"]
 resolver = "2"
 
-[package]
-name = "greentic-conformance"
-version = "0.2.0"
+[workspace.package]
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1"
+assert_cmd = "2"
+axum = { version = "0.7", features = ["macros", "json"] }
+base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+greentic-interfaces = { version = ">=0.1, <1" }
+greentic-oauth = { version = ">=0.1, <1" }
+greentic-pack = { version = ">=0.1, <1" }
+greentic-runner = { version = ">=0.1, <1" }
+greentic-secrets = { version = ">=0.1, <1" }
+greentic-types = { version = ">=0.1, <1" }
+handlebars = "6"
+josekit = { version = "0.10" }
+jsonwebtoken = "9"
+oauth-mock = { path = "crates/oauth-mock" }
+once_cell = "1"
+openidconnect = { version = "3" }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rsa = { version = "0.9", features = ["pem"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_bw = "2"
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "1"
+time = { version = "0.3", features = ["macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "signal", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+
+[package]
+name = "greentic-conformance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 license = "MIT"
 publish = false
 description = "Reusable conformance suites for Greentic (pack/runner/policy/oauth)"
@@ -17,41 +57,45 @@ name = "greentic_conformance"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml_bw = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
-base64 = "0.22"
-walkdir = "2"
-axum = { version = "0.7", optional = true, features = ["macros", "json"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_bw = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+base64 = { workspace = true }
+walkdir = { workspace = true }
+axum = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 
-greentic-types = { version = ">=0.1, <1" }
-greentic-interfaces = { version = ">=0.1, <1" }
-greentic-runner = { version = ">=0.1, <1", optional = true }
-greentic-pack = { version = ">=0.1, <1", optional = true }
-greentic-secrets = { version = ">=0.1, <1", optional = true }
-greentic-oauth = { version = ">=0.1, <1", optional = true }
+greentic-types = { workspace = true }
+greentic-interfaces = { workspace = true, optional = true }
+greentic-runner = { workspace = true, optional = true }
+greentic-pack = { workspace = true, optional = true }
+greentic-secrets = { workspace = true, optional = true }
+greentic-oauth = { workspace = true, optional = true }
 
 [features]
-default = ["runner", "policy", "oauth"]
-runner = ["greentic-runner", "greentic-pack"]
-policy = ["greentic-secrets"]
-oauth = ["greentic-oauth", "axum", "reqwest"]
+default = []
+runner = ["dep:greentic-runner", "dep:greentic-pack"]
+policy = ["dep:greentic-secrets", "dep:greentic-interfaces"]
+oauth = ["dep:greentic-oauth", "dep:axum", "dep:reqwest"]
 
 [dev-dependencies]
-assert_cmd = "2"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-handlebars = "6"
-rand = "0.9"
-serde_json = "1"
-tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-oauth-mock = { path = "crates/oauth-mock" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-sha2 = "0.10"
-url = "2"
-jsonwebtoken = "10"
+assert_cmd = { workspace = true }
+ed25519-dalek = { workspace = true }
+handlebars = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+oauth-mock = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+jsonwebtoken = { workspace = true }
+
+[patch.crates-io]
+greentic-oauth = { path = "vendor/greentic-oauth" }
+greentic-pack = { path = "vendor/greentic-pack" }

@@ -36,7 +36,7 @@ pub use flow_suite::{
     validate_flow_folder,
 };
 pub use pack_suite::{
-    PackExport, PackManifest, PackReport, PackRuntimeAdapter, PackSuiteOptions,
+    PackExport, PackManifest, PackReport, PackRuntimeAdapter, PackSignature, PackSuiteOptions,
     resolve_pack_manifest, verify_pack_exports,
 };
 pub use runner_suite::{

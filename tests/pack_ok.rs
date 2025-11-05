@@ -1,4 +1,6 @@
-use greentic_conformance::{PackExport, PackManifest, PackSuiteOptions, verify_pack_exports};
+use greentic_conformance::{
+    PackExport, PackManifest, PackSignature, PackSuiteOptions, verify_pack_exports,
+};
 use std::{fs::File, io::Write};
 use tempfile::tempdir;
 
@@ -10,7 +12,11 @@ fn pack_manifest_is_valid() {
 
     let manifest_path = temp.path().join("pack.manifest.json");
     let manifest = PackManifest {
-        signature: "mock-signature".into(),
+        signature: Some(PackSignature {
+            kind: "mock".into(),
+            public_key: "mock-public-key".into(),
+            signature: "mock-signature".into(),
+        }),
         flows: vec![PackExport {
             id: "example.flow".into(),
             summary: Some("Example flow".into()),
@@ -27,7 +33,14 @@ fn pack_manifest_is_valid() {
     // Exercise the default entrypoint
     let report =
         verify_pack_exports(pack_component.to_str().unwrap()).expect("pack verification to pass");
-    assert_eq!(report.manifest.signature, "mock-signature");
+    assert_eq!(
+        report
+            .manifest
+            .signature
+            .as_ref()
+            .map(|sig| sig.signature.as_str()),
+        Some("mock-signature")
+    );
     assert_eq!(report.manifest.flows.len(), 1);
 
     // Also ensure that the options path resolves correctly by pointing directly at the manifest.
@@ -44,7 +57,14 @@ fn pack_manifest_is_valid() {
         .verify_pack_exports(pack_component.to_str().unwrap())
         .expect("pack verification to pass with explicit manifest");
 
-    assert_eq!(report_via_manifest.manifest.signature, "mock-signature");
+    assert_eq!(
+        report_via_manifest
+            .manifest
+            .signature
+            .as_ref()
+            .map(|sig| sig.signature.as_str()),
+        Some("mock-signature")
+    );
     assert_eq!(
         report_via_manifest.runtime_flows.unwrap(),
         vec!["example.flow"]
