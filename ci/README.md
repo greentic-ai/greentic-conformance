@@ -40,6 +40,15 @@ conformance suite alongside the Greentic RP harness stub. The workflow is:
   redirect URI sent to the suite.
 - `SUITE_API_KEY` – API key generated under *Account → API Keys* within the
   suite UI. Required by both automation scripts.
+- `CONFIG_JSON` – RP configuration template passed to the suite. It must include
+  the relying party alias, redirect URI(s), scopes (at minimum `openid`),
+  metadata URL, and any additional plan-specific fields your module requires
+  (e.g. JWKS/JWKS URI for `private_key_jwt`).
+- `RP_TRIGGER_URL` – HTTP endpoint in your RP that starts the login flow for a
+  module. When running the suite in Docker, ensure this URL is reachable from
+  inside the container (use `host.docker.internal` on macOS/Windows or
+  `172.17.0.1` on Linux, or set `HOST_REACHABLE_RP=1` so the automation rewrites
+  `http://localhost` accordingly).
 
 The automation stores the last executed plan identifier in
 `reports/.last_plan_id` and keeps a JSON snapshot of the plan response for

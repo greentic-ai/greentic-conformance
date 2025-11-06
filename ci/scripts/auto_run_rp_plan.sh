@@ -7,6 +7,7 @@ set -euo pipefail
 : "${CONFIG_JSON:?missing CONFIG_JSON (plan configuration JSON)}"
 : "${RP_METADATA_URL:?missing RP_METADATA_URL (RP metadata URL)}"
 : "${RP_TRIGGER_URL:?missing RP_TRIGGER_URL (RP trigger endpoint)}"
+HOST_REACHABLE_RP="${HOST_REACHABLE_RP:-0}"
 
 PLAN="${PLAN:-oidcc-client-basic-certification-test-plan}"
 CLIENT_REG="${CLIENT_REG:-dynamic_client}"
@@ -43,23 +44,54 @@ done
 curl_opts=()
 rp_modules_flags=()
 suite_insecure=0
+TLS_FLAG=""
 case "${CS_URL}" in
   https://localhost|https://localhost:*|https://127.*)
     curl_opts+=(--insecure)
     rp_modules_flags+=(--insecure)
     suite_insecure=1
+    TLS_FLAG="-k"
     ;;
 esac
 if [[ "${CS_SKIP_TLS_VERIFY:-}" == "1" ]]; then
   curl_opts+=(--insecure)
   rp_modules_flags+=(--insecure)
   suite_insecure=1
+  TLS_FLAG="-k"
 fi
 
 if [[ "$suite_insecure" -eq 1 ]]; then
 rp_modules_flags=(--insecure)
 else
   rp_modules_flags=()
+fi
+
+EFFECTIVE_RP_TRIGGER_URL="$RP_TRIGGER_URL"
+if [[ "$HOST_REACHABLE_RP" == "1" ]]; then
+  if [[ "$RP_TRIGGER_URL" =~ ^(https?)://([^/]+)(/.*)?$ ]]; then
+    _proto="${BASH_REMATCH[1]}"
+    _hostport="${BASH_REMATCH[2]}"
+    _path="${BASH_REMATCH[3]}"
+    [[ -z "$_path" ]] && _path="/"
+    _host="${_hostport%%:*}"
+    _port="${_hostport#*:}"
+    [[ "$_port" == "$_hostport" ]] && _port=""
+    if [[ "$_host" == "localhost" || "$_host" == "127.0.0.1" ]]; then
+      case "$(uname -s)" in
+        Darwin|Windows_NT)
+          _mapped_host="host.docker.internal"
+          ;;
+        *)
+          _mapped_host="${DOCKER_HOST_IP:-172.17.0.1}"
+          ;;
+      esac
+      if [[ -n "$_port" && "$_port" != "$_hostport" ]]; then
+        _mapped_host="${_mapped_host}:${_port}"
+      fi
+      EFFECTIVE_RP_TRIGGER_URL="${_proto}://${_mapped_host}${_path}"
+      echo "[auto] rewriting RP trigger URL to ${EFFECTIVE_RP_TRIGGER_URL}"
+    fi
+  fi
 fi
 
 EFFECTIVE_RP_TRIGGER_URL="$RP_TRIGGER_URL"
@@ -138,9 +170,10 @@ if [[ -n "${CONFIG_JSON:-}" && -f "${CONFIG_JSON}" ]]; then
     exit 1
   fi
   TEMP_CONFIG="$(mktemp)"
-  jq --arg alias "$ALIAS" --arg url "$RP_METADATA_URL" '
+  jq --arg alias "$ALIAS" --arg url "$RP_METADATA_URL" --arg trigger "$EFFECTIVE_RP_TRIGGER_URL" '
     .alias = $alias
     | .rp_metadata_url = $url
+    | .rp_trigger_url = $trigger
   ' "$CONFIG_JSON" > "$TEMP_CONFIG"
   export PLAN_CONFIG_JSON="$TEMP_CONFIG"
 fi
@@ -189,9 +222,9 @@ if [[ -z "$PLAN_ID" ]]; then
 fi
 
 echo "[auto] polling plan readiness..."
-plan_ready=0
 status_json=""
-for _ in {1..15}; do
+plan_status="UNKNOWN"
+for _ in {1..5}; do
   status_json=$(curl_api GET "/api/plan/${PLAN_ID}")
   plan_status=$(echo "$status_json" | jq -r '.status // .planStatus // "UNKNOWN"')
   echo "  status=${plan_status}"
@@ -201,25 +234,66 @@ for _ in {1..15}; do
       echo "$status_json"
       exit 1
       ;;
-    WAITING|CONFIGURED|RUNNING)
-      plan_ready=1
-      break
-      ;;
   esac
   sleep 1
 done
 
-if [[ "$plan_ready" -ne 1 ]]; then
-  echo "[auto] proceeding with module creation despite status=${plan_status}"
-fi
+echo "[auto] proceeding with module creation (last status=${plan_status})"
 
-echo "[auto] creating modules for plan ${PLAN_ID}..."
-PLAN_DETAIL=$(curl_api GET "/api/plan/${PLAN_ID}")
-if [[ -z "$PLAN_DETAIL" ]]; then
-  echo "Failed to retrieve plan detail for ${PLAN_ID}" >&2
+echo "[auto] ensuring alias '${ALIAS}' exists..."
+alias_url="${CS_URL%/}/api/runner/alias/${ALIAS}"
+alias_resp=$(curl -sS ${TLS_FLAG:+$TLS_FLAG} -H "$(auth_hdr)" "$alias_url" -w '\n%{http_code}' || true)
+alias_code="${alias_resp##*$'\n'}"
+alias_body="${alias_resp%$'\n'*}"
+if [[ "$alias_code" == "404" ]]; then
+  echo "[auto] alias not found; creating..."
+  cfg=$(cat "${TEMP_CONFIG:-$CONFIG_JSON}")
+  alias_payload=$(jq -n \
+    --arg alias "$ALIAS" \
+    --arg request_type "$REQUEST_TYPE" \
+    --arg client_registration "$CLIENT_REG" \
+    --argjson cfg "$cfg" \
+  '{
+     alias: $alias,
+     variant: {
+       request_type: $request_type,
+       client_registration: $client_registration
+     },
+     config: $cfg
+   }')
+  curl_api POST "/api/runner/alias" "$alias_payload" > /dev/null
+  echo "[auto] alias created."
+elif [[ "$alias_code" == "200" || "$alias_code" == "204" ]]; then
+  echo "[auto] alias already exists."
+elif [[ "$alias_code" == "0" ]]; then
+  echo "[auto] failed to query alias (curl error)" >&2
+  exit 1
+else
+  echo "[auto] alias lookup returned HTTP ${alias_code}" >&2
+  [[ -n "$alias_body" ]] && echo "$alias_body" >&2
   exit 1
 fi
 
+echo "[auto] fetching module templates..."
+templates_json=""
+PLAN_DETAIL=$(curl_api GET "/api/plan/${PLAN_ID}")
+set +e
+templates_resp=$(curl -sS ${TLS_FLAG:+$TLS_FLAG} -H "$(auth_hdr)" "${CS_URL%/}/api/runner/plan/${PLAN_ID}/modules" -w '\n%{http_code}')
+curl_status=$?
+set -e
+if (( curl_status == 0 )); then
+  templates_code="${templates_resp##*$'\n'}"
+  templates_body="${templates_resp%$'\n'*}"
+  if [[ "$templates_code" == "200" ]]; then
+    templates_json="$templates_body"
+  fi
+fi
+if [[ -z "$templates_json" || "$templates_json" == "null" ]]; then
+  templates_json=$(echo "$PLAN_DETAIL" | jq '[.modules[] | {name: .testModule, variant: (.variant // {})}]')
+fi
+echo "$templates_json" | jq -r '.[].name' 2>/dev/null | sed 's/^/  - /' || true
+
+echo "[auto] creating modules for plan ${PLAN_ID}..."
 MODULE_COUNT=$(echo "$PLAN_DETAIL" | jq '.modules | length')
 if [[ "$MODULE_COUNT" -eq 0 ]]; then
   echo "Plan ${PLAN_ID} contains no modules; aborting." >&2
@@ -230,21 +304,34 @@ urlencode() {
   python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$1"
 }
 
+cfg_source="${TEMP_CONFIG:-$CONFIG_JSON}"
+cfg_json=$(cat "$cfg_source")
+base_variant=$(jq -n --arg request_type "$REQUEST_TYPE" --arg client_registration "$CLIENT_REG" '{request_type: $request_type, client_registration: $client_registration}')
+
 while IFS= read -r module; do
   test_name=$(echo "$module" | jq -r '.testModule')
-  variant_json=$(echo "$module" | jq -c '.variant // {}')
-  params="test=$(urlencode "$test_name")&plan=${PLAN_ID}"
-  if [[ "$variant_json" != "{}" ]]; then
-    params+="&variant=$(urlencode "$variant_json")"
-  fi
+  plan_variant=$(echo "$module" | jq -c '.variant // {}')
+  combined_variant=$(jq -n --argjson base "$base_variant" --argjson plan "$plan_variant" '$base + $plan')
+  module_payload=$(jq -n \
+    --arg name "$test_name" \
+    --arg alias "$ALIAS" \
+    --argjson variant "$combined_variant" \
+    --argjson cfg "$cfg_json" \
+  '{
+     name: $name,
+     alias: $alias,
+     variant: $variant,
+     config: $cfg
+   }')
+
   module_body=""
   module_id=""
   for attempt in {1..10}; do
     set +e
-    resp=$(curl -sS "${curl_opts[@]}" -X POST "${CS_URL%/}/api/runner?${params}" \
+    resp=$(curl -sS ${TLS_FLAG:+$TLS_FLAG} -X POST "${CS_URL%/}/api/runner/plan/${PLAN_ID}/module" \
       -H "$(auth_hdr)" \
       -H "Content-Type: application/json" \
-      -d '{}' -w '\n%{http_code}')
+      -d "$module_payload" -w '\n%{http_code}')
     curl_status=$?
     set -e
     if (( curl_status != 0 )); then
@@ -259,17 +346,39 @@ while IFS= read -r module; do
     http_code="${resp##*$'\n'}"
     module_body="${resp%$'\n'*}"
     if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
-      module_id=$(echo "$module_body" | jq -r '._id // .id // .moduleId // .testId // empty')
+      module_id=$(echo "$module_body" | jq -r '.id // .moduleId // .testId // empty')
       [[ -n "$module_id" ]] && break
-    fi
-    if [[ "$http_code" == "400" && "$attempt" -lt 10 ]]; then
-      echo "[auto] module create attempt ${attempt} returned 400; retrying..."
+    elif [[ "$http_code" == "404" && "$attempt" -eq 1 ]]; then
+      echo "[auto] module endpoint not available; falling back to legacy API" >&2
+      legacy_params="test=$(urlencode "$test_name")&plan=${PLAN_ID}"
+      legacy_variant=$(printf '%s' "$combined_variant" | jq -c '.')
+      if [[ "$legacy_variant" != "{}" ]]; then
+        legacy_params+="&variant=$(urlencode "$legacy_variant")"
+      fi
+      legacy_resp=$(curl -sS ${TLS_FLAG:+$TLS_FLAG} -X POST "${CS_URL%/}/api/runner?${legacy_params}" \
+        -H "$(auth_hdr)" \
+        -H "Content-Type: application/json" \
+        -d "$cfg_json" -w '\n%{http_code}')
+      legacy_code="${legacy_resp##*$'\n'}"
+      module_body="${legacy_resp%$'\n'*}"
+      if [[ "$legacy_code" == "200" || "$legacy_code" == "201" ]]; then
+        module_id=$(echo "$module_body" | jq -r '._id // .id // .moduleId // .testId // empty')
+        [[ -n "$module_id" ]] && break
+      else
+        echo "[api] legacy module creation failed (HTTP ${legacy_code})" >&2
+        [[ -n "$module_body" ]] && echo "$module_body" >&2
+        exit 1
+      fi
+    elif [[ "$http_code" == "400" && "$attempt" -lt 10 ]]; then
+      echo "[auto] module create attempt ${attempt} returned 400; retrying..." >&2
+      [[ -n "$module_body" ]] && echo "$module_body" >&2
       sleep 1
       continue
+    else
+      echo "[api] POST /api/runner/plan/${PLAN_ID}/module -> HTTP ${http_code}" >&2
+      [[ -n "$module_body" ]] && echo "$module_body" >&2
+      exit 1
     fi
-    echo "[auto] failed to create module ${test_name} (HTTP ${http_code})" >&2
-    [[ -n "$module_body" ]] && echo "$module_body" >&2
-    exit 1
   done
 
   if [[ -z "$module_id" ]]; then
@@ -278,8 +387,30 @@ while IFS= read -r module; do
   fi
 
   echo "[auto] module created: ${test_name} -> ${module_id}"
-  echo "[auto] starting module ${module_id}..."
-  curl_api POST "/api/runner/${module_id}" '{}'
+  set +e
+  start_resp=$(curl -sS ${TLS_FLAG:+$TLS_FLAG} -X POST "${CS_URL%/}/api/runner/plan/${PLAN_ID}/module/${module_id}/start" \
+    -H "$(auth_hdr)" \
+    -H "Content-Type: application/json" \
+    -d '{}' -w '\n%{http_code}')
+  start_status=$?
+  set -e
+  if (( start_status == 0 )); then
+    start_code="${start_resp##*$'\n'}"
+    start_body="${start_resp%$'\n'*}"
+    if [[ "$start_code" == "200" || "$start_code" == "204" ]]; then
+      echo "[auto] module started via plan endpoint."
+    elif [[ "$start_code" == "404" ]]; then
+      curl_api POST "/api/runner/${module_id}" '{}'
+      echo "[auto] module started via legacy endpoint."
+    else
+      echo "[api] failed to start module ${module_id} (HTTP ${start_code})" >&2
+      [[ -n "$start_body" ]] && echo "$start_body" >&2
+      exit 1
+    fi
+  else
+    echo "[api] curl failure when starting module ${module_id}" >&2
+    exit 1
+  fi
 done < <(echo "$PLAN_DETAIL" | jq -c '.modules[]')
 
 echo "[auto] driving RP modules (plan ${PLAN_ID})..."
