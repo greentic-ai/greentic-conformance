@@ -4,3 +4,9 @@ Cargo.lock
 .docker/
 .home/
 reports/
+.env
+.cf-tunnel.env
+.cf-tunnel.log
+ci/env/conformance.hosted.env
+.rustup/
+.cargo/

@@ -1,0 +1,32 @@
+name: Conformance (Hosted, no tunnel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      rp_base:
+        description: 'Public RP base URL (https)'
+        required: true
+      plan:
+        description: 'Hosted plan name'
+        default: oidcc-client-basic-certification-test-plan
+        required: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y jq curl
+      - name: Hosted Conformance
+        env:
+          CS_URL: https://www.certification.openid.net
+          CS_TOKEN: ${{ secrets.CS_TOKEN }}
+          PLAN: ${{ github.event.inputs.plan }}
+          ALIAS: greentic-rp
+          CLIENT_REG: dynamic_client
+          REQUEST_TYPE: plain_http_request
+          CONFIG_JSON: ci/plans/examples/rp-code-pkce-basic.config.json
+          USE_TUNNEL: "0"
+          RP_BASE: ${{ github.event.inputs.rp_base }}
+        run: |
+          bash ci/scripts/run_conformance_hosted_with_tunnel.sh

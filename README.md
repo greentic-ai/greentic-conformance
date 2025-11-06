@@ -81,54 +81,12 @@ The OIDF conformance suite publishes many RP profiles. We track the plans we car
 
 Our CI defaults to `rp-code-pkce-basic` for fast feedback, while nightly jobs opt into stricter plans such as FAPI1/FAPI2, PAR/JAR, and DPoP. Use the coverage table to understand which areas are exercised before adding new flows.
 
-## How to Run Locally
+## Hosted OIDF Conformance
 
-Local runs require Docker and `docker compose`. Once those are installed:
-
-```bash
-# Start the suite + RP harness containers (runs in the background)
-make conformance.up
-
-# Execute a plan (PLAN defaults to rp-code-pkce-basic)
-make conformance.plan PLAN=rp-code-pkce-basic
-
-# Pull JSON/HTML artifacts down to ./reports
-make conformance.reports
-
-# Tear the stack down when you are finished
-make conformance.down
-```
-
-The plan runner script accepts any slug listed under [`docs/coverage.md`](docs/coverage.md). Each invocation writes a snapshot of the suite response to `reports/plan-<plan_id>.json` and updates `reports/.last_plan_id`, making it easy to collect reports afterwards.
-
-## OpenID Conformance Suite (build-from-source)
-
-We build the official OpenID Foundation Conformance Suite directly from source so no container registry credentials are required.
-
-- **Prerequisites:** Docker Engine with Compose v2, outbound git access to `https://gitlab.com/openid/conformance-suite.git`, and the usual tooling required by Docker BuildKit.
-- **Default reference:** `release-v5.1.35` (override via `CONFORMANCE_REF`).
-- **Build once (optional but useful when iterating):** `make conformance.build`.
-- **Bring the stack up:** `make conformance.up` (first run will compile the suite; subsequent runs reuse cached layers and the Mongo volume).
-- **Override the upstream reference:** `CONFORMANCE_REF=release-v5.1.99 make conformance.up`.
-- **Plan aliases:** the `PLAN=` shortcuts (e.g. `rp-code-pkce-basic`) resolve to the suite's canonical plan names automatically.
-- **API authentication:** suite APIs expect `Authorization: Bearer <token>`; the local stack defaults to `ci-dev-token` (override with `SUITE_API_KEY`).
-- **URL:** https://localhost:8443/ (self-signed certificate, accept it in your browser).
-- **Tear down:** `make conformance.down` (removes containers and the Mongo volume).
-- **Troubleshooting:**  
-  - If port 8443 is busy, change the binding in `ci/docker/compose.conformance.yml`.  
-  - Slow startup on first run is expected while Maven builds the suite. Later runs reuse the Mongo volume `conformance_mongo` to avoid cold starts.  
-  - `make conformance.logs` follows the suite logs when debugging start-up issues.
-
-## Artifacts
-
-Artifacts are always written beneath `reports/`:
-
-- `plan-<id>.json` – suite response snapshot captured while polling the plan.
-- `.<last_plan_id>` – helper file used by the report collection script.
-- `<plan_id>/plan-export.{json,html}` – suite exports covering the overall plan.
-- `<plan_id>/<module>.{json,html}` – module-level detail reports when available.
-
-CI uploads the entire folder from nightly runs and the merge-gating workflow, so developers can inspect failures directly in the Actions UI.
+We run RP plans against the hosted OpenID Foundation conformance suite. See
+[`docs/oidf_conformance.md`](docs/oidf_conformance.md) for the end-to-end flow,
+including the Cloudflare tunnel helper for local development and the GitHub
+Actions workflow for CI runs.
 
 ## Getting Started
 

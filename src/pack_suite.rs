@@ -315,9 +315,7 @@ fn ensure_runtime_matches_manifest(
 
     if !missing_from_runtime.is_empty() || !missing_from_manifest.is_empty() {
         bail!(
-            "runtime exports do not align with manifest\nmissing in runtime: {:?}\nmissing in manifest: {:?}",
-            missing_from_runtime,
-            missing_from_manifest
+            "runtime exports do not align with manifest\nmissing in runtime: {missing_from_runtime:?}\nmissing in manifest: {missing_from_manifest:?}"
         );
     }
 

@@ -1,98 +1,94 @@
-# OIDF Conformance Quickstart
+# OIDF Conformance (Hosted Suite)
 
-Run the OpenID Foundation RP conformance suite end-to-end with a single make
-command. This guide covers environment requirements, supported variants, and
-common troubleshooting steps.
+Run OpenID Foundation RP conformance plans against the hosted suite at
+`https://www.certification.openid.net` with a single command. The tooling
+supports two modes:
+
+- **Local development** – automatically spins up a Cloudflare Quick Tunnel so a
+  localhost RP is reachable by the hosted suite.
+- **CI / staging** – skips the tunnel and points at a pre-existing public HTTPS
+  deployment.
 
 ## Prerequisites
 
-- **Suite URL & token** – create an API token in the OIDF Conformance Suite UI
-  and note the base URL (e.g. `https://www.certification.openid.net`).
-- **Reachable RP callback** – the suite must be able to hit your relying party
-  at the configured redirect URI (default stub: `python ci/docker/rp_app.py`).
-- **RP metadata URL** – the plan runner needs either your `.well-known`
-  metadata URL or a stub endpoint exposed by the RP harness.
+- Hosted suite account with an API token (Profile → **API Token**).
+- `jq` and `curl` in your shell.
+- [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/install-and-setup/installation/)
+  when running locally with `USE_TUNNEL=1`.
+- An RP that exposes the required endpoints:
+  - `/_conformance/start-login` – starts the OIDC login for a given module.
+  - `/_conformance/callback` – receives the authorization response.
 
-Export these before running the automation:
+## Environment configuration
 
-```bash
-export CS_URL="https://www.certification.openid.net"
-export CS_TOKEN="***"
-export RP_METADATA_URL="https://your-rp/.well-known/openid-configuration"
-export RP_TRIGGER_URL="https://your-rp/_conformance/start-login"
-export CONFIG_JSON="ci/plans/examples/rp-code-pkce-basic.config.json"
-export ALIAS="greentic-rp"
-# Optional: skip TLS verification for local self-signed suites
-# export CS_SKIP_TLS_VERIFY=1
-# Optional: rewrite localhost trigger URL for containers
-# export HOST_REACHABLE_RP=1
-```
-
-## One-shot run
-
-Kick off plan creation and execution in one command:
+Copy the sample file and fill in the hosted values:
 
 ```bash
-make conformance.full \
-  CS_URL="$CS_URL" \
-  CS_TOKEN="$CS_TOKEN" \
-  RP_METADATA_URL="$RP_METADATA_URL" \
-  RP_TRIGGER_URL="$RP_TRIGGER_URL" \
-  CONFIG_JSON="$CONFIG_JSON" \
-  ALIAS="$ALIAS"
+cp ci/env/conformance.hosted.example.env ci/env/conformance.hosted.env
+# edit ci/env/conformance.hosted.env (CS_TOKEN, optional RP_BASE, etc.)
 ```
 
-The `conformance.full` target:
+Important fields:
 
-1. Normalises variant shorthands.
-2. Merges your configuration JSON (alias, metadata URL) and creates or refreshes
-   the plan in the suite.
-3. Creates every module via the suite API and triggers your RP per test (fails
-   fast on the first error by default).
+| Variable        | Description                                                     |
+| --------------- | --------------------------------------------------------------- |
+| `CS_URL`        | Hosted suite URL (leave as `https://www.certification.openid.net`). |
+| `CS_TOKEN`      | API token from the hosted UI.                                   |
+| `PLAN`          | Plan slug (e.g. `oidcc-client-basic-certification-test-plan`).  |
+| `CONFIG_JSON`   | Base RP configuration (updated at runtime with alias & URLs).   |
+| `USE_TUNNEL`    | `1` (default) starts a Cloudflare tunnel; set to `0` in CI.     |
+| `RP_LOCAL_URL`  | Local RP base when tunnelling (default: `http://localhost:8080`). |
+| `RP_BASE`       | Public RP base URL (set when `USE_TUNNEL=0`).                   |
 
-`CONFIG_JSON` stays in the repo with placeholder values; the automation applies
-runtime overrides so you do not need to edit the file manually.
+All variables in `.env` or `ci/env/conformance.hosted.env` are automatically
+exported by the `Makefile`.
 
-Artifacts remain available through the suite UI; use `make conformance.reports`
-to download JSON/HTML exports after the run.
+## Local development (Quick Tunnel)
 
-## Variant shorthands
-
-The automation understands the following helper values:
-
-- `CLIENT_REG=dynamic` → `dynamic_client`
-- `CLIENT_REG=static` → `static_client`
-- `REQUEST_TYPE=plain_http_request | request_object | request_uri`
-
-Overrides can be supplied via the environment:
+With `USE_TUNNEL=1` (default), run:
 
 ```bash
-CLIENT_REG=static make conformance.full ...
-REQUEST_TYPE=request_object make conformance.full ...
+make conformance.plan
 ```
+
+The automation:
+
+1. Starts a Cloudflare Quick Tunnel pointing at `RP_LOCAL_URL`.
+2. Patches the RP configuration (redirect URI + trigger URL).
+3. Creates the hosted plan (or reuses `PLAN_ID` if provided).
+4. Creates and starts each module.
+
+Monitor progress at the printed URL, e.g.
+`https://www.certification.openid.net/plan-detail.html?plan=<PLAN_ID>`.
+
+The tunnel is torn down automatically when the command finishes.
+
+## CI / staging (no tunnel)
+
+Deploy the RP at a public HTTPS URL and set:
+
+```bash
+USE_TUNNEL=0 RP_BASE=https://rp-staging.example.com make conformance.plan
+```
+
+### GitHub Actions
+
+Use `.github/workflows/conformance-hosted.yml` to trigger a hosted run without a
+tunnel:
+
+1. Add `CS_TOKEN` to repository secrets.
+2. Dispatch the workflow with `rp_base=https://rp-staging.example.com`.
 
 ## Troubleshooting
 
-- **HTTP 401 on plan creation** – ensure `CS_TOKEN`/`SUITE_API_KEY` are exported
-  in the current shell (reissue tokens if the suite volume was reset).
-- **curl: (60) SSL certificate problem** – the suite uses a self-signed cert.
-  Export `CS_SKIP_TLS_VERIFY=1` (or use `https://localhost:8443`) to allow
-  unsigned certificates during local runs.
-- **404 from `/api/plan/info/<plan>`** – ensure the plan slug exists by checking
-  `curl -k -H "Authorization: Bearer $CS_TOKEN" "$CS_URL/api/plan/available"`.
-  Use one of the listed `planName` values.
-- **HTTP 500 “Illegal value for variant parameter client_registration”** – the
-  suite rejected an unsupported value; rerun with `CLIENT_REG=dynamic_client` or
-  `CLIENT_REG=static_client`, or run `make conformance.full` which performs a
-  preflight check.
-- **Plan creation failures referencing `client_registration`** – confirm your
-  config JSON aliases match `ALIAS` and that `CLIENT_REG` maps to a listed
-  variant in `/api/plan/info/<plan>`.
-- **Plans stuck in `WAITING`** – ensure your RP trigger endpoint accepts the
-  payload and begins an authorization request against the provided issuer.
-  The stub harness (`python ci/docker/rp_app.py`) does not include this trigger,
-  so wire `_conformance/start-login` into your RP before running `conformance.full`.
-- **Suite cannot reach your RP (timeouts after module start)** – set
-  `HOST_REACHABLE_RP=1` so `http://localhost:...` triggers are rewritten to
-  `host.docker.internal` (macOS/Windows) or `172.17.0.1` (Linux). Alternatively,
-  expose your RP on an address reachable from inside the suite container.
+- **401/403** – regenerate the hosted suite API token and update `CS_TOKEN`.
+- **400 on module create** – the hosted suite returns a JSON payload describing
+  the missing/invalid field (common issues: redirect URI mismatch, missing JWKS,
+  missing `openid` scope). Fix the config and rerun.
+- **Hosted suite cannot reach your RP** – ensure the RP is reachable via public
+  HTTPS. For local testing, keep `USE_TUNNEL=1`; for CI, double-check firewalls
+  and certificates.
+- **Unknown plan** – set `PLAN` to a slug listed under “Test Plans” in the
+  hosted UI, or reuse a specific `PLAN_ID`.
+- **Modules remain “Not run”** – open the printed plan URL to watch module
+  status and review logs.

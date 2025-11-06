@@ -84,14 +84,14 @@ pub struct LiveProviderConfig {
 impl LiveProviderConfig {
     fn from_env(definition: &'static LiveProviderDefinition) -> Option<Self> {
         let prefix = definition.env_prefix;
-        let client_id = std::env::var(format!("{}_CLIENT_ID", prefix)).ok()?;
-        let client_secret = std::env::var(format!("{}_CLIENT_SECRET", prefix)).ok()?;
-        let redirect_uri = std::env::var(format!("{}_REDIRECT_URI", prefix)).ok()?;
-        let authorization_url = std::env::var(format!("{}_AUTH_URL", prefix))
+        let client_id = std::env::var(format!("{prefix}_CLIENT_ID")).ok()?;
+        let client_secret = std::env::var(format!("{prefix}_CLIENT_SECRET")).ok()?;
+        let redirect_uri = std::env::var(format!("{prefix}_REDIRECT_URI")).ok()?;
+        let authorization_url = std::env::var(format!("{prefix}_AUTH_URL"))
             .unwrap_or_else(|_| definition.authorization_url.to_string());
-        let token_url = std::env::var(format!("{}_TOKEN_URL", prefix))
+        let token_url = std::env::var(format!("{prefix}_TOKEN_URL"))
             .unwrap_or_else(|_| definition.token_url.to_string());
-        let scopes = std::env::var(format!("{}_SCOPES", prefix))
+        let scopes = std::env::var(format!("{prefix}_SCOPES"))
             .map(|value| {
                 value
                     .split_whitespace()
@@ -382,7 +382,7 @@ struct MockOidcProvider {
     client_secret: String,
     redirect_uri: String,
     shutdown: Option<oneshot::Sender<()>>,
-    task: Option<JoinHandle<Result<(), hyper::Error>>>,
+    task: Option<JoinHandle<anyhow::Result<()>>>,
 }
 
 impl MockOidcProvider {
@@ -397,7 +397,7 @@ impl MockOidcProvider {
         let addr = listener
             .local_addr()
             .context("failed to obtain mock OIDC listener addr")?;
-        let issuer = format!("http://{}", addr);
+        let issuer = format!("http://{addr}");
 
         let state = ProviderState {
             issuer: issuer.clone(),
@@ -416,11 +416,14 @@ impl MockOidcProvider {
             .route("/jwks", get(jwks))
             .with_state(state);
 
-        let task = tokio::spawn(
-            axum::serve(listener, app).with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            }),
-        );
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .context("mock OIDC server failed")
+        });
 
         Ok(Self {
             issuer,
@@ -453,9 +456,7 @@ impl MockOidcProvider {
             let _ = tx.send(());
         }
         if let Some(task) = self.task.take() {
-            task.await
-                .context("mock OIDC server task panicked")?
-                .context("mock OIDC server failed")?;
+            task.await.context("mock OIDC server task panicked")??;
         }
         Ok(())
     }
@@ -483,7 +484,7 @@ struct AuthorizeRequest {
     response_type: String,
     client_id: String,
     redirect_uri: String,
-    scope: Option<String>,
+    _scope: Option<String>,
     state: Option<String>,
 }
 

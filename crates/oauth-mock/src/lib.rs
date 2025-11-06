@@ -17,7 +17,10 @@ use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use once_cell::sync::Lazy;
-use rand::{Rng, distributions::Alphanumeric, thread_rng};
+use rand::{
+    distr::{Alphanumeric, SampleString},
+    rng,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -139,11 +142,8 @@ struct InnerState {
 
 impl InnerState {
     fn generate_code(&self) -> String {
-        thread_rng()
-            .sample_iter(Alphanumeric)
-            .take(32)
-            .map(char::from)
-            .collect()
+        let mut rng = rng();
+        Alphanumeric.sample_string(&mut rng, 32)
     }
 
     fn client(&self, client_id: &str) -> Option<&ClientConfig> {
@@ -236,7 +236,7 @@ impl MockServerBuilder {
         listener: TcpListener,
         addr: SocketAddr,
     ) -> Result<MockServer> {
-        let base_url = format!("http://{}", addr);
+        let base_url = format!("http://{addr}");
         let issuer = if let Some(suffix) = &self.issuer_suffix {
             format!("{base_url}/{suffix}")
         } else {
@@ -787,10 +787,11 @@ async fn device_authorization(
         };
 
         let device_code: String = state_guard.generate_code();
-        let user_code: String = thread_rng()
-            .sample_iter(Alphanumeric)
-            .take(8)
-            .map(|ch| ch.to_ascii_uppercase() as char)
+        let mut rng = rng();
+        let user_code: String = Alphanumeric
+            .sample_string(&mut rng, 8)
+            .chars()
+            .map(|ch| ch.to_ascii_uppercase())
             .collect();
 
         let entry = DeviceCodeEntry {
@@ -1089,10 +1090,11 @@ fn verify_code_challenge(verifier: &str, expected_challenge: &str) -> Result<boo
 }
 
 fn generate_signing_keys() -> Result<SigningKeys> {
+    use rsa::rand_core::OsRng;
     use rsa::traits::PublicKeyParts;
     use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey};
 
-    let mut rng = rand::thread_rng();
+    let mut rng = OsRng;
     let private_key = RsaPrivateKey::new(&mut rng, 2048).context("generate RSA key")?;
     let public_key = private_key.to_public_key();
 

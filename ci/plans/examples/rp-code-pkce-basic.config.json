@@ -1,9 +1,10 @@
 {
   "display": "rp-code-pkce-basic",
-  "rp_request_type": "plain_http_request",
-  "client_registration": "dynamic_client",
-  "pkce": "S256",
-  "userinfo": "yes",
-  "rp_metadata_url": "__REPLACE_ME__",
-  "alias": "greentic-rp"
+  "client": {
+    "redirect_uri": "https://rp.example.com/_conformance/callback",
+    "response_type": "code",
+    "grant_types": ["authorization_code"],
+    "scope": "openid profile email"
+  },
+  "rp_metadata_url": "https://rp.example.com/.well-known/openid-configuration"
 }

@@ -90,10 +90,7 @@ impl ComponentInvocationOptions {
         // Ensure the input payload is valid JSON up-front so that a harness failure
         // is reported clearly.
         let parsed_input: Value = serde_json::from_str(input_json).with_context(|| {
-            format!(
-                "component input payload is not valid JSON for operation '{}'",
-                op
-            )
+            format!("component input payload is not valid JSON for operation '{op}'")
         })?;
 
         let mut command = Command::new(component_path);
