@@ -3,3 +3,4 @@ Cargo.lock
 .cache/
 .docker/
 .home/
+reports/

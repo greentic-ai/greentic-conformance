@@ -4,5 +4,6 @@
   "client_registration": "dynamic_client",
   "pkce": "S256",
   "userinfo": "yes",
-  "rp_metadata_url": "__REPLACE_ME__"
+  "rp_metadata_url": "__REPLACE_ME__",
+  "alias": "greentic-rp"
 }

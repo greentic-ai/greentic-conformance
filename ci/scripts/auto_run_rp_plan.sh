@@ -3,11 +3,12 @@ set -euo pipefail
 
 : "${CS_URL:?missing CS_URL (suite base URL)}"
 : "${CS_TOKEN:?missing CS_TOKEN (suite API token)}"
-: "${PLAN:?missing PLAN (suite plan name)}"
-: "${ALIAS:?missing ALIAS (RP alias)}"
+: "${ALIAS:?missing ALIAS (suite RP alias)}"
 : "${CONFIG_JSON:?missing CONFIG_JSON (plan configuration JSON)}"
 : "${RP_METADATA_URL:?missing RP_METADATA_URL (RP metadata URL)}"
+: "${RP_TRIGGER_URL:?missing RP_TRIGGER_URL (RP trigger endpoint)}"
 
+PLAN="${PLAN:-oidcc-client-basic-certification-test-plan}"
 CLIENT_REG="${CLIENT_REG:-dynamic_client}"
 REQUEST_TYPE="${REQUEST_TYPE:-plain_http_request}"
 FAIL_FAST="${FAIL_FAST:-true}"
@@ -22,6 +23,14 @@ case "$CLIENT_REG" in
     ;;
 esac
 
+case "$REQUEST_TYPE" in
+  plain_http_request|request_object|request_uri) ;;
+  *)
+    echo "Unsupported REQUEST_TYPE value: ${REQUEST_TYPE}" >&2
+    exit 1
+    ;;
+esac
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 for cmd in curl jq python3; do
@@ -32,16 +41,25 @@ for cmd in curl jq python3; do
 done
 
 curl_opts=()
+rp_modules_flags=()
 suite_insecure=0
 case "${CS_URL}" in
   https://localhost|https://localhost:*|https://127.*)
     curl_opts+=(--insecure)
+    rp_modules_flags+=(--insecure)
     suite_insecure=1
     ;;
 esac
 if [[ "${CS_SKIP_TLS_VERIFY:-}" == "1" ]]; then
   curl_opts+=(--insecure)
+  rp_modules_flags+=(--insecure)
   suite_insecure=1
+fi
+
+if [[ "$suite_insecure" -eq 1 ]]; then
+rp_modules_flags=(--insecure)
+else
+  rp_modules_flags=()
 fi
 
 TEMP_CONFIG=""
@@ -51,25 +69,32 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -n "${CONFIG_JSON:-}" && -f "${CONFIG_JSON}" ]]; then
+  CONFIG_ALIAS=$(jq -r '.alias // empty' "$CONFIG_JSON" 2>/dev/null || echo "")
+  if [[ -n "$CONFIG_ALIAS" && "$CONFIG_ALIAS" != "$ALIAS" ]]; then
+    echo "Config alias mismatch: expected '$ALIAS' but found '$CONFIG_ALIAS' in ${CONFIG_JSON}" >&2
+    exit 1
+  fi
   TEMP_CONFIG="$(mktemp)"
-  jq --arg alias "$ALIAS" '
+  jq --arg alias "$ALIAS" --arg url "$RP_METADATA_URL" '
     .alias = $alias
+    | .rp_metadata_url = $url
   ' "$CONFIG_JSON" > "$TEMP_CONFIG"
   export PLAN_CONFIG_JSON="$TEMP_CONFIG"
 fi
 
-echo "[auto] preflight variants..."
-if [[ "${curl_opts[*]}" != "" ]]; then
-  VARIANT_INFO=$(curl "${curl_opts[@]}" -fsS -H "Authorization: Bearer ${CS_TOKEN}" "${CS_URL%/}/api/plan/info/${PLAN}")
-else
-  VARIANT_INFO=$(curl -fsS -H "Authorization: Bearer ${CS_TOKEN}" "${CS_URL%/}/api/plan/info/${PLAN}")
+fail_fast_flag=()
+if [[ "$FAIL_FAST" == "true" ]]; then
+  fail_fast_flag=(--fail-fast)
 fi
+
+echo "[auto] preflight variants for ${PLAN}"
+VARIANT_INFO=$(curl "${curl_opts[@]}" -fsS -H "Authorization: Bearer ${CS_TOKEN}" "${CS_URL%/}/api/plan/info/${PLAN}")
 if [[ "$(echo "$VARIANT_INFO" | jq -r '.variants.client_registration.variantValues | type?')" != "object" ]]; then
   echo "Plan ${PLAN} does not expose client_registration variant details" >&2
   exit 1
 fi
-if ! echo "$VARIANT_INFO" | jq -e --arg value "$CLIENT_REG" '(.variants.client_registration.variantValues // {}) | has($value)' >/dev/null; then
-  echo "Invalid client_registration: ${CLIENT_REG}" >&2
+if ! echo "$VARIANT_INFO" | jq -e --arg v "$CLIENT_REG" '(.variants.client_registration.variantValues // {}) | has($v)' >/dev/null; then
+  echo "Invalid client_registration=${CLIENT_REG}" >&2
   echo "Allowed: $(echo "$VARIANT_INFO" | jq -r '.variants.client_registration.variantValues | keys | join(", ")')" >&2
   exit 1
 fi
@@ -77,14 +102,15 @@ if [[ "$(echo "$VARIANT_INFO" | jq -r '.variants.request_type.variantValues | ty
   echo "Plan ${PLAN} does not expose request_type variant details" >&2
   exit 1
 fi
-if ! echo "$VARIANT_INFO" | jq -e --arg value "$REQUEST_TYPE" '(.variants.request_type.variantValues // {}) | has($value)' >/dev/null; then
-  echo "Invalid request_type: ${REQUEST_TYPE}" >&2
+if ! echo "$VARIANT_INFO" | jq -e --arg v "$REQUEST_TYPE" '(.variants.request_type.variantValues // {}) | has($v)' >/dev/null; then
+  echo "Invalid request_type=${REQUEST_TYPE}" >&2
   echo "Allowed: $(echo "$VARIANT_INFO" | jq -r '.variants.request_type.variantValues | keys | join(", ")')" >&2
   exit 1
 fi
 
 echo "[auto] creating plan: ${PLAN}"
-"${ROOT}/ci/scripts/run_conformance_plan.sh" "$PLAN"
+PLAN_ARG="${PLAN}"
+RUN_CONFORMANCE_PLAN_NO_WAIT=1 "${ROOT}/ci/scripts/run_conformance_plan.sh" "$PLAN_ARG"
 unset PLAN_CONFIG_JSON
 
 PLAN_FILE="${ROOT}/reports/.last_plan_id"
@@ -99,16 +125,16 @@ if [[ -z "$PLAN_ID" ]]; then
   exit 1
 fi
 
-echo "[auto] retrieving module list for plan ${PLAN_ID}..."
+echo "[auto] creating modules for plan ${PLAN_ID}..."
 PLAN_DETAIL=$(curl "${curl_opts[@]}" -fsS -H "Authorization: Bearer ${CS_TOKEN}" "${CS_URL%/}/api/plan/${PLAN_ID}")
 if [[ -z "$PLAN_DETAIL" ]]; then
-  echo "Failed to fetch plan detail for ${PLAN_ID}" >&2
+  echo "Failed to retrieve plan detail for ${PLAN_ID}" >&2
   exit 1
 fi
 
 MODULE_COUNT=$(echo "$PLAN_DETAIL" | jq '.modules | length')
 if [[ "$MODULE_COUNT" -eq 0 ]]; then
-  echo "Plan ${PLAN_ID} contains no modules; nothing to run." >&2
+  echo "Plan ${PLAN_ID} contains no modules; aborting." >&2
   exit 1
 fi
 
@@ -138,5 +164,12 @@ while IFS= read -r module; do
   echo "[auto] module created: ${test_name} -> ${module_id}"
 done < <(echo "$PLAN_DETAIL" | jq -c '.modules[]')
 
-echo "[auto] modules created; inspect suite dashboard for progress."
-echo "[auto] complete."
+echo "[auto] driving RP modules (plan ${PLAN_ID})..."
+python3 "${ROOT}/ci/tools/run_rp_modules.py" \
+  --server "${CS_URL}" \
+  --token "${CS_TOKEN}" \
+  --alias "${ALIAS}" \
+  --plan-id "${PLAN_ID}" \
+  --trigger "${RP_TRIGGER_URL}" \
+  "${rp_modules_flags[@]}" \
+  "${fail_fast_flag[@]}"

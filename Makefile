@@ -61,7 +61,16 @@ conformance.run:
 	REQUEST_TYPE=$(REQUEST_TYPE) \
 	bash ./ci/scripts/auto_run_conformance_plan.sh
 
-conformance.full: conformance.plan conformance.run
+conformance.full:
+	CS_URL=$(CS_URL) \
+	CS_TOKEN=$(CS_TOKEN) \
+	PLAN=$(CONFORMANCE_PLAN) \
+	ALIAS=$(ALIAS) \
+	CONFIG_JSON=$(CONFIG_JSON) \
+	CLIENT_REG=$(CLIENT_REG) \
+	REQUEST_TYPE=$(REQUEST_TYPE) \
+	RP_TRIGGER_URL=$(RP_TRIGGER_URL) \
+	bash ./ci/scripts/auto_run_rp_plan.sh
 
 conformance.reports:
 	./ci/scripts/collect_reports.sh
