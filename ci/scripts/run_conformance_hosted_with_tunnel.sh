@@ -3,7 +3,7 @@ set -euo pipefail
 
 : "${CS_URL:?missing CS_URL}"                  # Hosted suite URL
 : "${CS_TOKEN:?missing CS_TOKEN}"              # API token from hosted UI
-: "${PLAN:?missing PLAN}"                      # e.g. oidcc-client-basic-certification-test-plan
+: "${PLAN_ID:?PLAN_ID is required on hosted. Create a plan in the UI and set PLAN_ID.}"
 : "${ALIAS:?missing ALIAS}"                    # RP alias
 : "${CLIENT_REG:?missing CLIENT_REG}"          # dynamic_client / static_client
 : "${REQUEST_TYPE:?missing REQUEST_TYPE}"      # plain_http_request / request_object / request_uri
@@ -46,7 +46,7 @@ api() {
         echo "[api] Access denied. Ensure your account has access to the requested plan and that CS_TOKEN has the correct scope." >&2
         ;;
       404)
-        echo "[api] Endpoint not found. Double-check CS_URL ('${CS_URL}') and verify the plan slug '${PLAN}' exists. This response is also returned when the API token lacks access to the runner API." >&2
+        echo "[api] Endpoint not found. Double-check CS_URL ('${CS_URL}') and verify the resource is accessible with your token (PLAN_ID=${PLAN_ID}). This response is also returned when the API token lacks access to the runner API." >&2
         ;;
       000)
         echo "[api] Network failure; confirm internet connectivity and that the host '${CS_URL}' resolves from this environment." >&2
@@ -88,41 +88,28 @@ echo "[conf] REDIRECT_URI=${REDIRECT_URI}"
 jq --arg redirect "${REDIRECT_URI}" '.client.redirect_uri = $redirect' \
   "$CONFIG_JSON" > "${TMP_CFG}"
 
-# --- Create or validate PLAN_ID on the hosted suite ---
-create_plan() {
-  local plan_name="$1"
-  local payload
-  payload=$(jq -nc --arg plan "$plan_name" '{planName:$plan}')
+plan_check_code=$(curl -sS -H "$(auth_header)" \
+  "${CS_URL%/}/api/runner/plan/${PLAN_ID}" -o /dev/null -w '%{http_code}')
+if [[ "$plan_check_code" != "200" ]]; then
+  echo "[conf] PLAN_ID=${PLAN_ID} is not accessible on hosted (http=${plan_check_code}). Ensure the plan exists and the token has access." >&2
+  exit 1
+fi
+echo "[conf] using hosted PLAN_ID=${PLAN_ID}"
 
-  local response
-  response=$(api POST "/api/runner/plan" "$payload")
-  PLAN_ID=$(echo "$response" | jq -r '.id // .planId // empty')
-  if [[ -z "$PLAN_ID" ]]; then
-    echo "[conf] failed to obtain plan id from response" >&2
+start_plan_code=$(curl -sS -H "$(auth_header)" -X POST \
+  "${CS_URL%/}/api/runner/plan/${PLAN_ID}/start" -o /dev/null -w '%{http_code}')
+case "$start_plan_code" in
+  200|204)
+    echo "[conf] plan started"
+    ;;
+  405|409)
+    echo "[conf] plan already running (http=${start_plan_code})"
+    ;;
+  *)
+    echo "[conf] failed to start plan (http=${start_plan_code})." >&2
     exit 1
-  fi
-  echo "[conf] plan created: ${PLAN_ID}"
-
-  api POST "/api/runner/plan/${PLAN_ID}/start" > /dev/null
-  echo "[conf] plan started"
-}
-
-validate_or_create_plan() {
-  if [[ -n "${PLAN_ID:-}" ]]; then
-    local code
-    code=$(curl -sS -H "$(auth_header)" \
-      "${CS_URL%/}/api/runner/plan/${PLAN_ID}" -o /dev/null -w '%{http_code}')
-    if [[ "$code" == "200" ]]; then
-      echo "[conf] using existing PLAN_ID=${PLAN_ID}"
-      return 0
-    fi
-    echo "[conf] Provided PLAN_ID not usable on hosted (http=${code}); creating a new one."
-    unset PLAN_ID
-  fi
-  create_plan "${PLAN}"
-}
-
-validate_or_create_plan
+    ;;
+esac
 
 module_payload=$(jq -nc \
   --arg alias "$ALIAS" \

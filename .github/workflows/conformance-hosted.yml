@@ -6,9 +6,8 @@ on:
       rp_base:
         description: 'Public RP base URL (https)'
         required: true
-      plan:
-        description: 'Hosted plan name'
-        default: oidcc-client-basic-certification-test-plan
+      plan_id:
+        description: 'Hosted plan identifier (from the web UI)'
         required: true
 
 jobs:
@@ -21,7 +20,7 @@ jobs:
         env:
           CS_URL: https://www.certification.openid.net
           CS_TOKEN: ${{ secrets.CS_TOKEN }}
-          PLAN: ${{ github.event.inputs.plan }}
+          PLAN_ID: ${{ github.event.inputs.plan_id }}
           ALIAS: greentic-rp
           CLIENT_REG: dynamic_client
           REQUEST_TYPE: plain_http_request

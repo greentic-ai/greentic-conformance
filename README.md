@@ -91,8 +91,9 @@ Actions workflow for CI runs.
 To get started locally:
 
 - Copy `ci/env/conformance.hosted.example.env` to the project root as `.env` and
-  replace the placeholder values (especially `CS_TOKEN`) with your hosted suite
-  credentials.
+  replace the placeholder values with your hosted suite credentials. Create the
+  desired RP plan in the hosted UI first and paste its identifier into
+  `PLAN_ID=...`.
 - Run `make conformance.plan` to spin up the tunnel (if needed) and drive the
   hosted plan. The make target automatically sources `.env`; update that file
   whenever your token or RP endpoints change.

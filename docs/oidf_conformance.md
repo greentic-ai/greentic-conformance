@@ -34,7 +34,7 @@ Important fields:
 | --------------- | --------------------------------------------------------------- |
 | `CS_URL`        | Hosted suite URL (leave as `https://www.certification.openid.net`). |
 | `CS_TOKEN`      | API token from the hosted UI.                                   |
-| `PLAN`          | Plan slug (e.g. `oidcc-client-basic-certification-test-plan`).  |
+| `PLAN_ID`       | Identifier of the hosted plan (create it in the UI first).      |
 | `CONFIG_JSON`   | Base RP configuration (updated at runtime with alias & URLs).   |
 | `USE_TUNNEL`    | `1` (default) starts a Cloudflare tunnel; set to `0` in CI.     |
 | `RP_LOCAL_URL`  | Local RP base when tunnelling (default: `http://localhost:8080`). |
@@ -55,7 +55,7 @@ The automation:
 
 1. Starts a Cloudflare Quick Tunnel pointing at `RP_LOCAL_URL`.
 2. Patches the RP configuration (redirect URI + trigger URL).
-3. Creates the hosted plan (or reuses `PLAN_ID` if provided).
+3. Validates the hosted plan (`PLAN_ID`) exists and starts it if idle.
 4. Creates and starts each module.
 
 Monitor progress at the printed URL, e.g.
@@ -77,7 +77,7 @@ Use `.github/workflows/conformance-hosted.yml` to trigger a hosted run without a
 tunnel:
 
 1. Add `CS_TOKEN` to repository secrets.
-2. Dispatch the workflow with `rp_base=https://rp-staging.example.com`.
+2. Dispatch the workflow with `rp_base=https://rp-staging.example.com plan_id=<PLAN_ID_FROM_UI>`.
 
 ## Troubleshooting
 
@@ -88,7 +88,7 @@ tunnel:
 - **Hosted suite cannot reach your RP** – ensure the RP is reachable via public
   HTTPS. For local testing, keep `USE_TUNNEL=1`; for CI, double-check firewalls
   and certificates.
-- **Unknown plan** – set `PLAN` to a slug listed under “Test Plans” in the
-  hosted UI, or reuse a specific `PLAN_ID`.
+- **Unknown plan id** – ensure `PLAN_ID` matches an existing plan that belongs
+  to the API token’s account (viewable in the hosted UI).
 - **Modules remain “Not run”** – open the printed plan URL to watch module
   status and review logs.

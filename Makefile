@@ -1,7 +1,6 @@
 -include .env
 export
 
-PLAN ?= oidcc-client-basic-certification-test-plan
 ALIAS ?= greentic-rp
 CLIENT_REG ?= dynamic_client
 REQUEST_TYPE ?= plain_http_request
