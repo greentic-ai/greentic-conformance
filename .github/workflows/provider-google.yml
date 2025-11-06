@@ -1,0 +1,36 @@
+name: provider-google
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 6 * * *"
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  google-smoke:
+    if: ${{ secrets.GOOGLE_SA_JSON_B64 != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOOGLE_SA_JSON_B64: ${{ secrets.GOOGLE_SA_JSON_B64 }}
+      GOOGLE_SCOPE: ${{ secrets.GOOGLE_SCOPE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Run Google provider smoke test
+        run: cargo test -- --ignored --test-threads=1 provider_google
+
+  skip:
+    if: ${{ secrets.GOOGLE_SA_JSON_B64 == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Google service account secrets not configured; skipping provider smoke test."

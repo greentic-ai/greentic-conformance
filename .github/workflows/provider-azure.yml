@@ -1,0 +1,37 @@
+name: provider-azure
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  azure-smoke:
+    if: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Run Azure provider smoke test
+        run: cargo test -- --ignored --test-threads=1 provider_azure
+
+  skip:
+    if: ${{ secrets.AZURE_TENANT_ID == '' || secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_CLIENT_SECRET == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Azure secrets not configured; skipping provider smoke test."

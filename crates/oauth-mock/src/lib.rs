@@ -12,7 +12,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use once_cell::sync::Lazy;
 use rand::{Rng, distributions::Alphanumeric, thread_rng};
 use serde::{Deserialize, Serialize};
@@ -46,7 +49,6 @@ struct Jwk {
 #[derive(Clone)]
 struct SigningKeys {
     encoding: jsonwebtoken::EncodingKey,
-    decoding: jsonwebtoken::DecodingKey,
     jwk: Jwk,
 }
 
@@ -92,15 +94,15 @@ struct AuthorizationCode {
     scope: HashSet<String>,
     code_challenge: Option<String>,
     nonce: Option<String>,
-    created_at: OffsetDateTime,
+    _created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]
 struct RefreshTokenEntry {
     client_id: String,
     scope: HashSet<String>,
-    subject: MockUser,
-    issued_at: OffsetDateTime,
+    _subject: MockUser,
+    _issued_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]
@@ -116,10 +118,10 @@ enum DeviceCodeStatus {
 struct DeviceCodeEntry {
     client_id: String,
     scope: HashSet<String>,
-    device_code: String,
+    _device_code: String,
     user_code: String,
     expires_at: OffsetDateTime,
-    interval: u64,
+    _interval: u64,
     status: DeviceCodeStatus,
 }
 
@@ -273,7 +275,7 @@ impl MockServerBuilder {
             jwks,
             state,
             shutdown: Some(shutdown_tx),
-            task: handle,
+            _task: handle,
         })
     }
 }
@@ -298,7 +300,7 @@ pub struct MockServer {
     jwks: Value,
     state: SharedState,
     shutdown: Option<oneshot::Sender<()>>,
-    task: tokio::task::JoinHandle<()>,
+    _task: tokio::task::JoinHandle<()>,
 }
 
 impl MockServer {
@@ -481,7 +483,7 @@ async fn authorize(
             scope: allowed,
             code_challenge: query.code_challenge.clone(),
             nonce: query.nonce.clone(),
-            created_at: OffsetDateTime::now_utc(),
+            _created_at: OffsetDateTime::now_utc(),
         },
     );
 
@@ -794,10 +796,10 @@ async fn device_authorization(
         let entry = DeviceCodeEntry {
             client_id: client.client_id.clone(),
             scope: scope.clone(),
-            device_code: device_code.clone(),
+            _device_code: device_code.clone(),
             user_code: user_code.clone(),
             expires_at: OffsetDateTime::now_utc() + TimeDuration::minutes(10),
-            interval: 5,
+            _interval: 5,
             status: DeviceCodeStatus::Pending { poll_count: 0 },
         };
         state_guard.device_codes.insert(device_code.clone(), entry);
@@ -914,7 +916,7 @@ fn extract_client_credentials(
             .to_str()
             .map_err(|_| MockError::invalid_client("invalid Authorization header"))?;
         if let Some(encoded) = auth.strip_prefix("Basic ") {
-            let decoded = URL_SAFE_NO_PAD
+            let decoded = STANDARD
                 .decode(encoded)
                 .map_err(|_| MockError::invalid_client("invalid basic auth"))?;
             let decoded = String::from_utf8(decoded)
@@ -1053,8 +1055,8 @@ fn issue_refresh_token(
         RefreshTokenEntry {
             client_id: client.client_id.clone(),
             scope: scope.clone(),
-            subject: state.user.clone(),
-            issued_at,
+            _subject: state.user.clone(),
+            _issued_at: issued_at,
         },
     );
     Ok(refresh_token)
@@ -1070,7 +1072,7 @@ fn parse_scope(scope: &Option<String>) -> Result<HashSet<String>, MockError> {
                 .map(|part| part.to_string())
                 .collect()
         })
-        .unwrap_or_else(HashSet::new))
+        .unwrap_or_default())
 }
 
 fn scope_to_string(scope: &HashSet<String>) -> String {
@@ -1099,12 +1101,6 @@ fn generate_signing_keys() -> Result<SigningKeys> {
         .context("encode RSA key to PEM")?;
     let encoding =
         jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes()).context("create encoding key")?;
-    let decoding = jsonwebtoken::DecodingKey::from_rsa_components(
-        &URL_SAFE_NO_PAD.encode(public_key.n().to_bytes_be()),
-        &URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be()),
-    )
-    .context("create decoding key")?;
-
     let jwk = Jwk {
         kty: "RSA".into(),
         use_: "sig".into(),
@@ -1114,11 +1110,7 @@ fn generate_signing_keys() -> Result<SigningKeys> {
         e: URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be()),
     };
 
-    Ok(SigningKeys {
-        encoding,
-        decoding,
-        jwk,
-    })
+    Ok(SigningKeys { encoding, jwk })
 }
 
 #[derive(Debug, Error)]

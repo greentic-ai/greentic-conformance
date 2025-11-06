@@ -2,21 +2,24 @@
 
 Reusable conformance harness for Greentic packs, flows, runners, and components. The crate exposes ergonomic helpers that downstream projects can import to standardise validation logic while keeping the actual runtime integrations local to the project under test.
 
-## Conformance Suites
+## What We Test
 
-Typed harness modules live under `greentic_conformance::suites` so any Greentic repository can compose the same conformance logic:
+The harness focuses on four areas that map directly to `greentic_conformance::suites::*`:
 
-- `suites::pack_runner` wraps pack validation and optional runner smoke tests behind `PackRunnerSuiteConfig` and `run_suite`.
-- `suites::policy` validates allow-listed secrets, idempotent sends, and retry schedules via `PolicySuiteConfig`.
-- `suites::oauth` embeds a deterministic Rust mock OIDC provider and optionally exercises live providers when `OAuthSuiteConfig` is configured with credentials.
+- **Pack suite** – validates manifest signatures, enumerated flows, and runtime exports for Greentic packs.
+- **Flow suite** – parses and lint-checks flow documents (YAML/JSON) with optional custom validators.
+- **Runner suite** – boots a runner binary in mock mode and inspects emitted telemetry / egress payloads.
+- **OAuth suite** – delivers a deterministic mock OIDC server and can optionally exercise live providers when credentials are available.
 
-The integration tests in `tests/pack_runner.rs`, `tests/policy.rs`, and `tests/oauth.rs` show how to drive each suite; downstream projects can copy those files verbatim or call the harness directly from their own tests.
+Example usage lives in `tests/pack_runner.rs`, `tests/policy.rs`, and `tests/oauth.rs`. Downstream crates can copy those tests or import the suites directly.
 
-All suites continue to share the common helpers:
+### Shared helpers
+
+Every suite builds on the reusable utilities under `src/`:
 
 - `env.rs` – consistent parsing of multi-tenant IDs and CI feature flags (`CI_ENABLE_VAULT`, `CI_ENABLE_AWS`, `CI_ENABLE_GCP`, `CI_ENABLE_OAUTH_MOCK`, `CI_ENABLE_OAUTH_LIVE`, `CI_DISABLE_OAUTH_MOCK`, `ALLOW_UNSIGNED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `TENANT_ID`, `TEAM_ID`, `USER_ID`).
-- `assertions.rs` – reusable `assert_signed_pack`, `assert_idempotent_send`, and `assert_span_attrs` helpers.
-- `src/fixtures/` – demo pack, signing utility, and the embedded mock OIDC stack.
+- `assertions.rs` – helpers such as `assert_signed_pack`, `assert_idempotent_send`, and `assert_span_attrs`.
+- `fixtures/` – demo pack assets, signing utilities, and the embedded mock OIDC stack.
 
 Typical harness usage:
 
@@ -72,14 +75,60 @@ The default workflow runs a three-lane matrix:
 
 Downstream repositories can mirror the same lanes or mix-and-match harness calls. Extra provider secrets can be injected with the environment keys listed above; when no credentials are available the live lane is skipped automatically.
 
-## What It Covers
+## Profiles
 
-- **Pack suite** – Ensures pack assets ship a manifest with a signature and enumerated flows.
-- **Flow suite** – Validates flow documents (e.g. `.ygtc`) for structural integrity and schema metadata.
-- **Runner suite** – Boots a runner binary in mock mode, captures its output, and checks expected egress payloads.
-- **Component suite** – Invokes a component in the generic component interface style, piping JSON input and asserting JSON output.
+The OIDF conformance suite publishes many RP profiles. We track the plans we care about in [`docs/coverage.md`](docs/coverage.md); each entry documents the plan slug, the features it covers in the Greentic RP client, and where to inspect the harness implementation.
 
-All suites return structured reports so higher-level tests can apply additional assertions or emit richer diagnostics.
+Our CI defaults to `rp-code-pkce-basic` for fast feedback, while nightly jobs opt into stricter plans such as FAPI1/FAPI2, PAR/JAR, and DPoP. Use the coverage table to understand which areas are exercised before adding new flows.
+
+## How to Run Locally
+
+Local runs require Docker and `docker compose`. Once those are installed:
+
+```bash
+# Start the suite + RP harness containers (runs in the background)
+make conformance.up
+
+# Execute a plan (PLAN defaults to rp-code-pkce-basic)
+make conformance.plan PLAN=rp-code-pkce-basic
+
+# Pull JSON/HTML artifacts down to ./reports
+make conformance.reports
+
+# Tear the stack down when you are finished
+make conformance.down
+```
+
+The plan runner script accepts any slug listed under [`docs/coverage.md`](docs/coverage.md). Each invocation writes a snapshot of the suite response to `reports/plan-<plan_id>.json` and updates `reports/.last_plan_id`, making it easy to collect reports afterwards.
+
+## OpenID Conformance Suite (build-from-source)
+
+We build the official OpenID Foundation Conformance Suite directly from source so no container registry credentials are required.
+
+- **Prerequisites:** Docker Engine with Compose v2, outbound git access to `https://gitlab.com/openid/conformance-suite.git`, and the usual tooling required by Docker BuildKit.
+- **Default reference:** `release-v5.1.35` (override via `CONFORMANCE_REF`).
+- **Build once (optional but useful when iterating):** `make conformance.build`.
+- **Bring the stack up:** `make conformance.up` (first run will compile the suite; subsequent runs reuse cached layers and the Mongo volume).
+- **Override the upstream reference:** `CONFORMANCE_REF=release-v5.1.99 make conformance.up`.
+- **Plan aliases:** the `PLAN=` shortcuts (e.g. `rp-code-pkce-basic`) resolve to the suite's canonical plan names automatically.
+- **API authentication:** suite APIs expect `Authorization: Bearer <token>`; the local stack defaults to `ci-dev-token` (override with `SUITE_API_KEY`).
+- **URL:** https://localhost:8443/ (self-signed certificate, accept it in your browser).
+- **Tear down:** `make conformance.down` (removes containers and the Mongo volume).
+- **Troubleshooting:**  
+  - If port 8443 is busy, change the binding in `ci/docker/compose.conformance.yml`.  
+  - Slow startup on first run is expected while Maven builds the suite. Later runs reuse the Mongo volume `conformance_mongo` to avoid cold starts.  
+  - `make conformance.logs` follows the suite logs when debugging start-up issues.
+
+## Artifacts
+
+Artifacts are always written beneath `reports/`:
+
+- `plan-<id>.json` – suite response snapshot captured while polling the plan.
+- `.<last_plan_id>` – helper file used by the report collection script.
+- `<plan_id>/plan-export.{json,html}` – suite exports covering the overall plan.
+- `<plan_id>/<module>.{json,html}` – module-level detail reports when available.
+
+CI uploads the entire folder from nightly runs and the merge-gating workflow, so developers can inspect failures directly in the Actions UI.
 
 ## Getting Started
 

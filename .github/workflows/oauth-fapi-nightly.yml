@@ -1,0 +1,66 @@
+name: oauth-fapi-nightly
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fapi-nightly:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUITE_BASE: https://localhost:8443
+      RP_BASE_URL: http://localhost:8080
+      SUITE_API_KEY: ci-dev-token
+      FINANCIAL_API: "true"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start conformance stack (FAPI)
+        run: docker compose -f ci/docker/compose.conformance.yml up -d --wait
+
+      - name: Wait for suite health endpoint
+        run: ./ci/scripts/wait_for.sh https://localhost:8443/health 300
+
+      - name: Run plan rp-fapi1-advanced
+        run: ./ci/scripts/run_conformance_plan.sh rp-fapi1-advanced
+
+      - name: Collect reports (rp-fapi1-advanced)
+        if: ${{ always() }}
+        run: ./ci/scripts/collect_reports.sh
+
+      - name: Run plan rp-fapi2-message-signing
+        run: ./ci/scripts/run_conformance_plan.sh rp-fapi2-message-signing
+
+      - name: Collect reports (rp-fapi2-message-signing)
+        if: ${{ always() }}
+        run: ./ci/scripts/collect_reports.sh
+
+      - name: Run plan rp-par-jar-dpop
+        run: ./ci/scripts/run_conformance_plan.sh rp-par-jar-dpop
+
+      - name: Collect reports (rp-par-jar-dpop)
+        if: ${{ always() }}
+        run: ./ci/scripts/collect_reports.sh
+
+      - name: Generate timestamp
+        id: timestamp
+        run: echo "stamp=$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-fapi-${{ steps.timestamp.outputs.stamp }}
+          path: reports/**
+          if-no-files-found: warn
+
+      - name: Tear down stack
+        if: ${{ always() }}
+        run: docker compose -f ci/docker/compose.conformance.yml down --volumes

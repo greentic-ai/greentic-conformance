@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use oauth_mock::MockServer;
 use rand::{Rng, distributions::Alphanumeric, thread_rng};
@@ -54,7 +52,6 @@ struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     id_token: Option<String>,
-    scope: Option<String>,
     token_type: String,
 }
 
@@ -130,19 +127,16 @@ fn validate_id_token(server: &MockServer, token: &str, aud: &str) -> Result<()> 
     #[derive(Debug, Deserialize)]
     struct Claims {
         iss: String,
-        sub: String,
         aud: String,
         exp: i64,
         iat: i64,
-        email: String,
-        preferred_username: String,
-        scope: Option<String>,
     }
 
     let jwk = &server.jwks()["keys"][0];
     let n = jwk["n"].as_str().unwrap();
     let e = jwk["e"].as_str().unwrap();
-    let decoding = jsonwebtoken::DecodingKey::from_rsa_components(n, e);
+    let decoding = jsonwebtoken::DecodingKey::from_rsa_components(n, e)
+        .expect("construct decoding key from RSA components");
     let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
     validation.set_audience(&[aud]);
     let token_data = jsonwebtoken::decode::<Claims>(token, &decoding, &validation)?;

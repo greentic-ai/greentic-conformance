@@ -1,0 +1,53 @@
+name: oauth-conformance
+
+on:
+  pull_request:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+      SUITE_BASE: https://localhost:8443
+      RP_BASE_URL: http://localhost:8080
+      SUITE_API_KEY: ci-dev-token
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      - name: Start conformance stack
+        run: docker compose -f ci/docker/compose.conformance.yml up -d --wait
+
+      - name: Wait for suite health endpoint
+        run: ./ci/scripts/wait_for.sh https://localhost:8443/health 180
+
+      - name: Execute RP conformance plan
+        run: ./ci/scripts/run_conformance_plan.sh rp-code-pkce-basic
+
+      - name: Collect reports
+        if: ${{ always() }}
+        run: ./ci/scripts/collect_reports.sh
+
+      - name: Upload reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-conformance-reports
+          path: reports/**
+          if-no-files-found: warn
+
+      - name: Tear down stack
+        if: ${{ always() }}
+        run: docker compose -f ci/docker/compose.conformance.yml down --volumes
