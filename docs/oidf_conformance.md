@@ -24,6 +24,8 @@ export CONFIG_JSON="ci/plans/examples/rp-code-pkce-basic.config.json"
 export ALIAS="greentic-rp"
 # Optional: skip TLS verification for local self-signed suites
 # export CS_SKIP_TLS_VERIFY=1
+# Optional: rewrite localhost trigger URL for containers
+# export HOST_REACHABLE_RP=1
 ```
 
 ## One-shot run
@@ -90,3 +92,7 @@ REQUEST_TYPE=request_object make conformance.full ...
   payload and begins an authorization request against the provided issuer.
   The stub harness (`python ci/docker/rp_app.py`) does not include this trigger,
   so wire `_conformance/start-login` into your RP before running `conformance.full`.
+- **Suite cannot reach your RP (timeouts after module start)** – set
+  `HOST_REACHABLE_RP=1` so `http://localhost:...` triggers are rewritten to
+  `host.docker.internal` (macOS/Windows) or `172.17.0.1` (Linux). Alternatively,
+  expose your RP on an address reachable from inside the suite container.

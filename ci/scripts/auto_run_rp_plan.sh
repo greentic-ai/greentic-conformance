@@ -62,6 +62,69 @@ else
   rp_modules_flags=()
 fi
 
+EFFECTIVE_RP_TRIGGER_URL="$RP_TRIGGER_URL"
+if [[ "${HOST_REACHABLE_RP:-0}" == "1" ]]; then
+  if [[ "$RP_TRIGGER_URL" =~ ^(https?)://([^/]+)(/.*)?$ ]]; then
+    _proto="${BASH_REMATCH[1]}"
+    _hostport="${BASH_REMATCH[2]}"
+    _path="${BASH_REMATCH[3]}"
+    [[ -z "$_path" ]] && _path="/"
+    _host="${_hostport%%:*}"
+    _port="${_hostport#*:}"
+    [[ "$_port" == "$_hostport" ]] && _port=""
+    if [[ "$_host" == "localhost" || "$_host" == "127.0.0.1" ]]; then
+      case "$(uname -s)" in
+        Darwin|Windows_NT)
+          _mapped_host="host.docker.internal"
+          ;;
+        *)
+          _mapped_host="${DOCKER_HOST_IP:-172.17.0.1}"
+          ;;
+      esac
+      [[ -n "$_port" && "$_port" != "$_hostport" ]] && _mapped_host="${_mapped_host}:${_port}"
+      EFFECTIVE_RP_TRIGGER_URL="${_proto}://${_mapped_host}${_path}"
+      echo "[auto] rewriting RP trigger URL to ${EFFECTIVE_RP_TRIGGER_URL}"
+    fi
+  fi
+fi
+
+auth_hdr() {
+  printf "Authorization: Bearer %s" "$CS_TOKEN"
+}
+
+curl_api() {
+  local method=$1
+  local path=$2
+  local body="${3:-}"
+  local url="${CS_URL%/}${path}"
+  local cmd=(curl -sS)
+  if ((${#curl_opts[@]})); then
+    cmd+=("${curl_opts[@]}")
+  fi
+  cmd+=(-X "$method" -H "$(auth_hdr)")
+  if [[ -n "$body" ]]; then
+    cmd+=(-H "Content-Type: application/json" -d "$body")
+  fi
+  cmd+=("$url" -w '\n%{http_code}')
+  set +e
+  local resp
+  resp=$("${cmd[@]}")
+  local curl_status=$?
+  set -e
+  if ((curl_status != 0)); then
+    echo "[api] curl failed (${curl_status}) for ${method} ${path}" >&2
+    exit 1
+  fi
+  local http_code="${resp##*$'\n'}"
+  local payload="${resp%$'\n'*}"
+  if ! [[ "$http_code" =~ ^[0-9]+$ ]] || (( http_code < 200 || http_code >= 300 )); then
+    echo "[api] ${method} ${path} -> HTTP ${http_code}" >&2
+    [[ -n "$payload" ]] && echo "$payload" >&2
+    exit 1
+  fi
+  printf '%s' "$payload"
+}
+
 TEMP_CONFIG=""
 cleanup() {
   [[ -n "$TEMP_CONFIG" && -f "$TEMP_CONFIG" ]] && rm -f "$TEMP_CONFIG"
@@ -88,7 +151,7 @@ if [[ "$FAIL_FAST" == "true" ]]; then
 fi
 
 echo "[auto] preflight variants for ${PLAN}"
-VARIANT_INFO=$(curl "${curl_opts[@]}" -fsS -H "Authorization: Bearer ${CS_TOKEN}" "${CS_URL%/}/api/plan/info/${PLAN}")
+VARIANT_INFO=$(curl_api GET "/api/plan/info/${PLAN}")
 if [[ "$(echo "$VARIANT_INFO" | jq -r '.variants.client_registration.variantValues | type?')" != "object" ]]; then
   echo "Plan ${PLAN} does not expose client_registration variant details" >&2
   exit 1
@@ -125,8 +188,33 @@ if [[ -z "$PLAN_ID" ]]; then
   exit 1
 fi
 
+echo "[auto] polling plan readiness..."
+plan_ready=0
+status_json=""
+for _ in {1..15}; do
+  status_json=$(curl_api GET "/api/plan/${PLAN_ID}")
+  plan_status=$(echo "$status_json" | jq -r '.status // .planStatus // "UNKNOWN"')
+  echo "  status=${plan_status}"
+  case "$plan_status" in
+    FAILED|STOPPED)
+      echo "[auto] plan ${PLAN_ID} entered terminal state (${plan_status})" >&2
+      echo "$status_json"
+      exit 1
+      ;;
+    WAITING|CONFIGURED|RUNNING)
+      plan_ready=1
+      break
+      ;;
+  esac
+  sleep 1
+done
+
+if [[ "$plan_ready" -ne 1 ]]; then
+  echo "[auto] proceeding with module creation despite status=${plan_status}"
+fi
+
 echo "[auto] creating modules for plan ${PLAN_ID}..."
-PLAN_DETAIL=$(curl "${curl_opts[@]}" -fsS -H "Authorization: Bearer ${CS_TOKEN}" "${CS_URL%/}/api/plan/${PLAN_ID}")
+PLAN_DETAIL=$(curl_api GET "/api/plan/${PLAN_ID}")
 if [[ -z "$PLAN_DETAIL" ]]; then
   echo "Failed to retrieve plan detail for ${PLAN_ID}" >&2
   exit 1
@@ -149,19 +237,49 @@ while IFS= read -r module; do
   if [[ "$variant_json" != "{}" ]]; then
     params+="&variant=$(urlencode "$variant_json")"
   fi
-  response=$(curl "${curl_opts[@]}" --silent --show-error -X POST "${CS_URL%/}/api/runner?${params}" \
-    -H "Authorization: Bearer ${CS_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d '{}' -w '\n%{http_code}')
-  http_code=$(tail -n1 <<<"$response")
-  body=$(head -n -1 <<<"$response")
-  if [[ "$http_code" -ge 400 || -z "$body" ]]; then
-    echo "Failed to create module for ${test_name} (HTTP ${http_code})" >&2
-    echo "$body" >&2
+  module_body=""
+  module_id=""
+  for attempt in {1..10}; do
+    set +e
+    resp=$(curl -sS "${curl_opts[@]}" -X POST "${CS_URL%/}/api/runner?${params}" \
+      -H "$(auth_hdr)" \
+      -H "Content-Type: application/json" \
+      -d '{}' -w '\n%{http_code}')
+    curl_status=$?
+    set -e
+    if (( curl_status != 0 )); then
+      echo "[auto] curl error creating module ${test_name} (attempt ${attempt})" >&2
+      echo "$resp" >&2
+      if (( attempt == 10 )); then
+        exit 1
+      fi
+      sleep 1
+      continue
+    fi
+    http_code="${resp##*$'\n'}"
+    module_body="${resp%$'\n'*}"
+    if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+      module_id=$(echo "$module_body" | jq -r '._id // .id // .moduleId // .testId // empty')
+      [[ -n "$module_id" ]] && break
+    fi
+    if [[ "$http_code" == "400" && "$attempt" -lt 10 ]]; then
+      echo "[auto] module create attempt ${attempt} returned 400; retrying..."
+      sleep 1
+      continue
+    fi
+    echo "[auto] failed to create module ${test_name} (HTTP ${http_code})" >&2
+    [[ -n "$module_body" ]] && echo "$module_body" >&2
+    exit 1
+  done
+
+  if [[ -z "$module_id" ]]; then
+    echo "[auto] module id missing for ${test_name}" >&2
     exit 1
   fi
-  module_id=$(echo "$body" | jq -r '._id // .id // .moduleId // .testId // empty')
+
   echo "[auto] module created: ${test_name} -> ${module_id}"
+  echo "[auto] starting module ${module_id}..."
+  curl_api POST "/api/runner/${module_id}" '{}'
 done < <(echo "$PLAN_DETAIL" | jq -c '.modules[]')
 
 echo "[auto] driving RP modules (plan ${PLAN_ID})..."
@@ -170,6 +288,6 @@ python3 "${ROOT}/ci/tools/run_rp_modules.py" \
   --token "${CS_TOKEN}" \
   --alias "${ALIAS}" \
   --plan-id "${PLAN_ID}" \
-  --trigger "${RP_TRIGGER_URL}" \
+  --trigger "${EFFECTIVE_RP_TRIGGER_URL}" \
   "${rp_modules_flags[@]}" \
   "${fail_fast_flag[@]}"
