@@ -19,7 +19,7 @@ USAGE
 fi
 
 PLAN="${1:-${PLAN:-}}"
-SUITE_BASE="${SUITE_BASE:-https://localhost:8443}"
+SUITE_BASE="${SUITE_BASE:-${CS_URL:-https://localhost:8443}}"
 RP_BASE_URL="${RP_BASE_URL:-http://localhost:8080}"
 
 declare -A PLAN_ALIAS_MAP=(
@@ -32,7 +32,7 @@ declare -A PLAN_ALIAS_MAP=(
 canonical_plan="${PLAN_ALIAS_MAP[$PLAN]:-$PLAN}"
 
 declare -A PLAN_VARIANT_MAP=(
-  ["rp-code-pkce-basic"]='{"request_type":"plain_http_request","client_registration":"dynamic"}'
+  ["rp-code-pkce-basic"]='{"request_type":"plain_http_request","client_registration":"dynamic_client"}'
   ["rp-fapi1-advanced"]='{"fapi_profile":"plain_fapi","client_auth_type":"private_key_jwt","fapi_auth_request_method":"pushed","fapi_response_mode":"plain_response","fapi_client_type":"oidc"}'
   ["rp-fapi2-message-signing"]='{"fapi_profile":"plain_fapi","client_auth_type":"private_key_jwt","fapi_auth_request_method":"pushed","fapi_response_mode":"jarm","fapi_client_type":"oidc"}'
   ["rp-par-jar-dpop"]='{"fapi_profile":"plain_fapi","client_auth_type":"private_key_jwt","fapi_auth_request_method":"pushed","fapi_response_mode":"jarm","fapi_client_type":"oidc","sender_constrained_tokens":"dpop"}'
@@ -52,8 +52,10 @@ done
 
 auth_headers=()
 
+SUITE_API_KEY="${SUITE_API_KEY:-${CS_TOKEN:-}}"
+
 if [[ -z "${SUITE_API_KEY:-}" ]]; then
-  echo "run_conformance_plan.sh: missing required SUITE_API_KEY environment variable" >&2
+  echo "run_conformance_plan.sh: missing required SUITE_API_KEY/CS_TOKEN environment variable" >&2
   exit 2
 fi
 
@@ -85,6 +87,22 @@ plan_description="Automated run for ${PLAN} at $(date +%Y-%m-%dT%H:%M:%S)"
 variant_json='null'
 if [[ -n "${PLAN_VARIANT_MAP[$PLAN]:-}" ]]; then
   variant_json="${PLAN_VARIANT_MAP[$PLAN]}"
+fi
+if [[ "$variant_json" != "null" ]]; then
+  variant_json=$(VARIANT_JSON="$variant_json" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ["VARIANT_JSON"]
+data = json.loads(raw)
+value = data.get("client_registration")
+if value == "dynamic":
+    data["client_registration"] = "dynamic_client"
+elif value == "static":
+    data["client_registration"] = "static_client"
+print(json.dumps(data, separators=(",", ":")))
+PY
+)
 fi
 payload=$(jq -n --arg description "$plan_description" '{description: $description}')
 

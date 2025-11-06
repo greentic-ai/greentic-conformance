@@ -1,47 +1,37 @@
-name: Conformance
+name: OIDF Conformance (RP)
 
 on:
-  push:
-    paths:
-      - "ci/docker/**"
-      - ".github/workflows/conformance.yml"
-      - "Makefile"
   workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
 
 jobs:
-  suite:
+  oidf:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
-      CONFORMANCE_REF: release-v5.0.0
+      CS_URL: ${{ secrets.OIDF_CS_URL }}
+      CS_TOKEN: ${{ secrets.OIDF_CS_TOKEN }}
+      RP_METADATA_URL: ${{ secrets.RP_METADATA_URL }}
+      CONFORMANCE_PLAN: oidcc-client-basic-certification-test-plan
+      ALIAS: greentic-rp
+      CLIENT_REG: dynamic_client
+      REQUEST_TYPE: plain_http_request
+      CONFIG_JSON: ci/plans/examples/rp-code-pkce-basic.config.json
+      SUITE_BASE: ${{ secrets.OIDF_CS_URL }}
+      SUITE_API_KEY: ${{ secrets.OIDF_CS_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+          python-version: '3.11'
 
-      - name: Build
-        run: make conformance.build
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Up
-        run: make conformance.up
-
-      - name: Smoke check HTTPS
-        run: |
-          sleep 20
-          curl -k -sS https://localhost:8443/ | head -n 50
-
-      - name: Logs (on failure)
-        if: failure()
-        run: make conformance.logs
-
-      - name: Down
-        if: always()
-        run: make conformance.down
+      - name: Auto-run OIDF plan
+        run: make conformance.full

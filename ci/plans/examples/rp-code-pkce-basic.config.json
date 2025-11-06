@@ -1,0 +1,8 @@
+{
+  "display": "rp-code-pkce-basic",
+  "rp_request_type": "plain_http_request",
+  "client_registration": "dynamic_client",
+  "pkce": "S256",
+  "userinfo": "yes",
+  "rp_metadata_url": "__REPLACE_ME__"
+}

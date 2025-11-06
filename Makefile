@@ -4,7 +4,13 @@ DOCKER_CONFIG_DIR := $(CURDIR)/.docker
 export CONFORMANCE_REF
 export CS_DIR
 
-.PHONY: test e2e ci conformance.fetch conformance.mvn conformance.build conformance.up conformance.plan conformance.reports conformance.down conformance.logs
+CONFORMANCE_PLAN ?= oidcc-client-basic-certification-test-plan
+ALIAS ?= greentic-rp
+CONFIG_JSON ?= ci/plans/examples/rp-code-pkce-basic.config.json
+CLIENT_REG ?= dynamic_client
+REQUEST_TYPE ?= plain_http_request
+
+.PHONY: test e2e ci conformance.fetch conformance.mvn conformance.build conformance.up conformance.plan conformance.reports conformance.down conformance.logs conformance.run conformance.full
 
 PLAN ?= rp-code-pkce-basic
 
@@ -43,6 +49,19 @@ conformance.up: conformance.build
 
 conformance.plan:
 	./ci/scripts/run_conformance_plan.sh $(PLAN)
+
+conformance.run:
+	CS_URL=$(CS_URL) \
+	CS_TOKEN=$(CS_TOKEN) \
+	PLAN=$(CONFORMANCE_PLAN) \
+	ALIAS=$(ALIAS) \
+	CONFIG_JSON=$(CONFIG_JSON) \
+	RP_METADATA_URL=$(RP_METADATA_URL) \
+	CLIENT_REG=$(CLIENT_REG) \
+	REQUEST_TYPE=$(REQUEST_TYPE) \
+	bash ./ci/scripts/auto_run_conformance_plan.sh
+
+conformance.full: conformance.plan conformance.run
 
 conformance.reports:
 	./ci/scripts/collect_reports.sh

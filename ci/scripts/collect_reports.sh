@@ -16,8 +16,8 @@ USAGE
   exit 0
 fi
 
-SUITE_BASE="${SUITE_BASE:-https://localhost:8443}"
-SUITE_API_KEY="${SUITE_API_KEY:-}"
+SUITE_BASE="${SUITE_BASE:-${CS_URL:-https://localhost:8443}}"
+SUITE_API_KEY="${SUITE_API_KEY:-${CS_TOKEN:-}}"
 PLAN_ID="${1:-}"
 
 mkdir -p reports
