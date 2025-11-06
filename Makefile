@@ -1,7 +1,4 @@
-CONFORMANCE_HOSTED_ENV ?= ci/env/conformance.hosted.env
-
 -include .env
--include $(CONFORMANCE_HOSTED_ENV)
 export
 
 PLAN ?= oidcc-client-basic-certification-test-plan
@@ -25,15 +22,9 @@ ci:
 	./scripts/ci.sh
 
 conformance.plan:
-	CS_URL=$(CS_URL) \
-	CS_TOKEN=$(CS_TOKEN) \
-	PLAN=$(PLAN) \
-	ALIAS=$(ALIAS) \
-	CLIENT_REG=$(CLIENT_REG) \
-	REQUEST_TYPE=$(REQUEST_TYPE) \
-	CONFIG_JSON=$(CONFIG_JSON) \
-	PLAN_ID=$(PLAN_ID) \
-	USE_TUNNEL=$(USE_TUNNEL) \
-	RP_LOCAL_URL=$(RP_LOCAL_URL) \
-	RP_BASE=$(RP_BASE) \
-	bash ci/scripts/run_conformance_hosted_with_tunnel.sh
+	@set -a; . ./.env; set +a; \
+	bash ci/scripts/run_conformance_hosted_with_tunnel.sh || { \
+		status=$$?; \
+		echo >&2 "[make] conformance.plan failed (exit $$status). See logs above for details, then verify your .env settings (CS_TOKEN, RP_BASE, etc.)."; \
+		exit $$status; \
+	}

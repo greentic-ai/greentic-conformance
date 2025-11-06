@@ -88,6 +88,15 @@ We run RP plans against the hosted OpenID Foundation conformance suite. See
 including the Cloudflare tunnel helper for local development and the GitHub
 Actions workflow for CI runs.
 
+To get started locally:
+
+- Copy `ci/env/conformance.hosted.example.env` to the project root as `.env` and
+  replace the placeholder values (especially `CS_TOKEN`) with your hosted suite
+  credentials.
+- Run `make conformance.plan` to spin up the tunnel (if needed) and drive the
+  hosted plan. The make target automatically sources `.env`; update that file
+  whenever your token or RP endpoints change.
+
 ## Getting Started
 
 Add the crate to your workspace:
