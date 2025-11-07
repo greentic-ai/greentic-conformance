@@ -27,7 +27,7 @@ jobs:
           toolchain: 1.86.0
 
       - name: Run Google provider smoke test
-        run: cargo test -- --ignored --test-threads=1 provider_google
+        run: cargo test --test provider_google -- --ignored --test-threads=1 google_service_account_jwt_bearer_smoke
 
   skip:
     if: ${{ secrets.GOOGLE_SA_JSON_B64 == '' }}

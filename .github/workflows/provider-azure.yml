@@ -28,7 +28,7 @@ jobs:
           toolchain: 1.86.0
 
       - name: Run Azure provider smoke test
-        run: cargo test -- --ignored --test-threads=1 provider_azure
+        run: cargo test --test provider_azure -- --ignored --test-threads=1 azure_client_credentials_smoke
 
   skip:
     if: ${{ secrets.AZURE_TENANT_ID == '' || secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_CLIENT_SECRET == '' }}
