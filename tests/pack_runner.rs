@@ -7,7 +7,7 @@ use greentic_conformance::assertions::{self, SpanRecord};
 use greentic_conformance::fixtures::pack::{ECHO_TEMPLATE, FLOW_YAML, MANIFEST_YAML};
 use greentic_conformance::suites::pack_runner::{PackRunnerSuiteConfig, run_suite};
 use handlebars::Handlebars;
-use rand::rngs::OsRng;
+use rand::{RngCore, rng};
 use serde_json::{Value, json};
 use serde_yaml_bw::from_str as from_yaml;
 use std::{collections::HashMap, fs};
@@ -17,7 +17,10 @@ fn sign_manifest(manifest: &Value) -> Result<Value> {
     let mut manifest = manifest.clone();
     let canonical = serde_json::to_vec(&manifest)?;
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let mut secret = [0u8; 32];
+    let mut rng = rng();
+    rng.fill_bytes(&mut secret);
+    let signing_key = SigningKey::from_bytes(&secret);
     let verifying_key = signing_key.verifying_key();
     let signature: Signature = signing_key.sign(&canonical);
 

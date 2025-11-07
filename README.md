@@ -206,6 +206,20 @@ The suites never enable network access implicitly. To opt-in for online checks (
 
 CI enforces all three commands. Online checks can be enabled via repository or environment configuration (see `.github/workflows/ci.yml`).
 
+## Local CI Checks
+
+Run `ci/local_check.sh` before pushing to mirror the GitHub Actions matrix:
+
+```bash
+# offline & non-strict by default
+ci/local_check.sh
+
+# enable online-only steps, strict/optional checks, and verbose tracing
+LOCAL_CHECK_ONLINE=1 LOCAL_CHECK_STRICT=1 LOCAL_CHECK_VERBOSE=1 ci/local_check.sh
+```
+
+The script auto-sources `.env` when present, verifies tooling (`cargo`, `docker`, `cloudflared`, etc.), and skips network-dependent plans unless `LOCAL_CHECK_ONLINE=1`. Strict mode flips missing tools into hard failures and runs the optional nightly plans when their dependencies are configured.
+
 ## Releases & Publishing
 
 - Versions are sourced from each crate’s `Cargo.toml`.

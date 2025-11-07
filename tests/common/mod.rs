@@ -31,8 +31,7 @@ impl TempBinary {
             .expect("invoke rustc");
         assert!(
             status.success(),
-            "rustc failed to build temp binary with status {}",
-            status
+            "rustc failed to build temp binary with status {status}"
         );
 
         Self {

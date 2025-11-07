@@ -1,8 +1,11 @@
 fn main() {
     use ed25519_dalek::{SigningKey, SECRET_KEY_LENGTH};
-    use rand::rngs::OsRng;
+    use rand::{rng, RngCore};
 
-    let signing_key = SigningKey::generate(&mut OsRng);
+    let mut secret = [0u8; SECRET_KEY_LENGTH];
+    let mut rng = rng();
+    rng.fill_bytes(&mut secret);
+    let signing_key = SigningKey::from_bytes(&secret);
     let verifying_key = signing_key.verifying_key();
 
     std::fs::write("dev-ed25519.key", signing_key.to_bytes()).expect("write signing key");
