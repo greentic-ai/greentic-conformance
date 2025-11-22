@@ -11,7 +11,6 @@ permissions:
 
 jobs:
   azure-smoke:
-    if: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -28,10 +27,9 @@ jobs:
           toolchain: 1.86.0
 
       - name: Run Azure provider smoke test
+        if: ${{ env.AZURE_TENANT_ID != '' && env.AZURE_CLIENT_ID != '' && env.AZURE_CLIENT_SECRET != '' }}
         run: cargo test --test provider_azure -- --ignored --test-threads=1 azure_client_credentials_smoke
 
-  skip:
-    if: ${{ secrets.AZURE_TENANT_ID == '' || secrets.AZURE_CLIENT_ID == '' || secrets.AZURE_CLIENT_SECRET == '' }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Azure secrets not configured; skipping provider smoke test."
+      - name: Skip (no Azure secrets)
+        if: ${{ env.AZURE_TENANT_ID == '' || env.AZURE_CLIENT_ID == '' || env.AZURE_CLIENT_SECRET == '' }}
+        run: echo "Azure secrets not configured; skipping provider smoke test."
