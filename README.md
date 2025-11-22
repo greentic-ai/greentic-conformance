@@ -107,6 +107,12 @@ Add the crate to your workspace:
 greentic-conformance = { path = "../greentic-conformance" }
 ```
 
+### Interface bindings
+
+- The conformance harness is a host; optional host-facing features (for example `policy`) pull the curated `greentic-interfaces-host` bindings. Downstream hosts should do the same instead of depending on raw `greentic-interfaces`.
+- If you add reference wasm components alongside your tests, depend on `greentic-interfaces-guest` inside those guest crates.
+- Avoid importing WIT modules directly; use the host/guest bindings to stay aligned with the canonical interfaces.
+
 Then exercise whichever suites you need from your integration tests:
 
 ```rust

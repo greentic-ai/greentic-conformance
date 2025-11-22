@@ -9,6 +9,7 @@ pub enum ProviderKind {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
     pub client_id: Option<String>,
@@ -18,6 +19,7 @@ pub struct ProviderConfig {
     pub live_enabled: bool,
 }
 
+#[allow(dead_code)]
 impl ProviderConfig {
     pub fn is_live(&self) -> bool {
         !matches!(self.kind, ProviderKind::Mock)

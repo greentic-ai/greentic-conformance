@@ -106,6 +106,7 @@ async fn spawn_mock_server() -> Result<Option<MockServer>> {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct TokenResponse {
     access_token: String,
     #[serde(default)]
@@ -422,6 +423,7 @@ async fn exchange_code(ctx: &TestContext, code: &str, verifier: &str) -> Result<
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 struct IdTokenClaims {
     iss: String,
     sub: String,
