@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   azure-smoke:
@@ -17,6 +18,9 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      TENANT_ID: ci-tenant
+      TEAM_ID: ci-team
+      USER_ID: ci-user
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
