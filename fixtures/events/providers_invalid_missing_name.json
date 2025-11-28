@@ -1,0 +1,8 @@
+[
+  {
+    "name": "",
+    "kind": "broker",
+    "topics": ["greentic.*"],
+    "metadata": {}
+  }
+]

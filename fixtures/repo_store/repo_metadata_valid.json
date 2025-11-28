@@ -1,0 +1,9 @@
+[
+  {
+    "pack_id": "example.pack",
+    "pack_version": "1.0.0",
+    "digest": "sha256:deadbeef",
+    "signature": "sig-123",
+    "sbom": "sbom://example.pack/1.0.0"
+  }
+]

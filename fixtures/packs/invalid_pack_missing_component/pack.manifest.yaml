@@ -1,0 +1,12 @@
+id: "pack.invalid.missing-component"
+version: "1.0.0"
+kind: "component"
+flows:
+  - id: "echo-flow"
+    path: "flows/echo.ygtc"
+signature:
+  type: "ed25519"
+  public_key: "Zm9v"
+  signature: "YmFy"
+components:
+  - "components/missing.wasm"

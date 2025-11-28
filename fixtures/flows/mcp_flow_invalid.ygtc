@@ -1,0 +1,7 @@
+id: "mcp.flow.invalid"
+type: "messaging"
+nodes:
+  - id: "exec"
+    type: "mcp.exec"
+    metadata:
+      action: "run"

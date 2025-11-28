@@ -1,0 +1,5 @@
+id: "digital.worker.flow.invalid"
+type: "digital_worker"
+nodes:
+  - id: "handoff"
+    type: "worker.handoff"

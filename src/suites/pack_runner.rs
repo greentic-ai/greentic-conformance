@@ -159,6 +159,13 @@ pub fn run_suite(config: PackRunnerSuiteConfig) -> Result<PackRunnerSuiteReport>
             )
         })?;
 
+    if !pack_report.warnings.is_empty() {
+        tracing::warn!(
+            warnings = ?pack_report.warnings,
+            "pack verification emitted warnings"
+        );
+    }
+
     if require_signature {
         let manifest_value: Value = serde_json::to_value(&pack_report.manifest)?;
         assertions::assert_signed_pack(&manifest_value)?;

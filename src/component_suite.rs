@@ -6,6 +6,9 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+/// Worlds that are not allowed in generic Greentic components.
+const DENYLISTED_WORLDS: &[&str] = &["greentic:repo-ui-actions/repo-ui-worker@1.0.0"];
+
 /// Options that tune how a component invocation is performed.
 #[derive(Debug, Clone)]
 pub struct ComponentInvocationOptions {
@@ -61,6 +64,30 @@ pub struct ComponentInvocation {
     pub stderr: String,
     pub status: i32,
     pub output_json: Option<Value>,
+}
+
+/// Validates that exported worlds do not include repo/domain-specific entries.
+pub fn assert_allowed_worlds(worlds: &[String]) -> Result<()> {
+    for world in worlds {
+        if DENYLISTED_WORLDS.iter().any(|blocked| world == blocked) {
+            bail!("component exports forbidden world '{}'", world);
+        }
+    }
+    Ok(())
+}
+
+/// Light validation for legacy tool specs or MCP exec metadata.
+pub fn assert_valid_tool_invocation(tool_name: &str, action: &str, payload: &Value) -> Result<()> {
+    if tool_name.trim().is_empty() {
+        bail!("tool name must not be empty");
+    }
+    if action.trim().is_empty() {
+        bail!("tool action must not be empty");
+    }
+    if !payload.is_object() {
+        bail!("tool payload must be a JSON object");
+    }
+    Ok(())
 }
 
 /// Invokes a generic component using the default options.

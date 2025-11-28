@@ -1,0 +1,10 @@
+id: "flow.invalid.routing"
+type: "messaging"
+nodes:
+  - id: "start"
+    type: "message.receive"
+    route:
+      route: to_node
+      to: ["missing-node"]
+  - id: "end"
+    type: "message.send"

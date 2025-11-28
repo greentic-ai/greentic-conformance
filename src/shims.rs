@@ -12,5 +12,5 @@ pub mod policy {
 
 #[cfg(feature = "oauth")]
 pub mod oauth {
-    pub use greentic_oauth as oauth;
+    pub use greentic_oauth_sdk as oauth;
 }

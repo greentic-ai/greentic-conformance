@@ -1,0 +1,14 @@
+id: "messaging.flow.valid"
+type: "messaging"
+nodes:
+  - id: "ingress"
+    type: "message.receive"
+  - id: "worker"
+    type: "worker.invoke"
+  - id: "egress"
+    type: "message.send"
+edges:
+  - from: "ingress"
+    to: "worker"
+  - from: "worker"
+    to: "egress"

@@ -1,0 +1,17 @@
+{
+  "id": "events.flow.valid",
+  "nodes": [
+    {
+      "id": "source",
+      "type": "event.source",
+      "provider": "nats",
+      "topic": "greentic.repo.*"
+    },
+    {
+      "id": "sink",
+      "type": "event.sink",
+      "provider": "nats",
+      "topic": "greentic.repo.*"
+    }
+  ]
+}

@@ -41,7 +41,7 @@ impl Default for FlowValidationOptions {
     fn default() -> Self {
         Self {
             allowed_extensions: vec!["ygtc".into(), "yaml".into(), "yml".into(), "json".into()],
-            require_schema: true,
+            require_schema: false,
             validators: Vec::new(),
         }
     }
@@ -66,9 +66,15 @@ where
 pub struct FlowDocument {
     pub id: String,
     #[serde(default)]
+    pub r#type: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    #[serde(rename = "$schema", default)]
+    pub schema_ref: Option<String>,
     #[serde(default)]
     pub schema: Option<serde_json::Value>,
     pub nodes: Vec<FlowNode>,
@@ -81,9 +87,29 @@ pub struct FlowNode {
     #[serde(alias = "type")]
     pub kind: String,
     #[serde(default)]
+    pub route: Option<NodeRoute>,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+}
+
+/// Routing targets for a node.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct NodeRoute {
+    pub route: RouteKind,
+    #[serde(default)]
+    pub to: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteKind {
+    FollowGraph,
+    ToNode,
+    ToNodes,
+    ReplyToOrigin,
+    EndFlow,
 }
 
 /// Report returned after validating a folder of flows.
@@ -92,6 +118,36 @@ pub struct FlowValidationReport {
     pub root: PathBuf,
     pub flows: Vec<FlowDocument>,
 }
+
+/// Valid flow types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlowType {
+    Messaging,
+    Events,
+    Worker,
+    DigitalWorker,
+    Unknown,
+}
+
+/// Supported flow schema versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlowSchemaVersion {
+    V1,
+}
+
+/// Error returned when a flow declares an unknown schema version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownFlowSchemaVersion {
+    pub found: String,
+}
+
+impl std::fmt::Display for UnknownFlowSchemaVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown flow schema version '{}'", self.found)
+    }
+}
+
+impl std::error::Error for UnknownFlowSchemaVersion {}
 
 /// Validates all flow documents inside the provided path using default options.
 pub fn validate_flow_folder(path: &str) -> Result<FlowValidationReport> {
@@ -240,6 +296,7 @@ fn parse_flow_document(path: &Path, raw: &str) -> Result<FlowDocument> {
 }
 
 fn validate_flow(flow: &FlowDocument, require_schema: bool) -> Result<()> {
+    detect_flow_schema_version(flow)?;
     if flow.id.trim().is_empty() {
         bail!("flow id must not be empty");
     }
@@ -276,8 +333,207 @@ fn validate_flow(flow: &FlowDocument, require_schema: bool) -> Result<()> {
                     node.id
                 );
             }
+            if node.kind.starts_with("mcp.") {
+                validate_mcp_metadata(flow, node, metadata)?;
+            }
+        }
+
+        if let Some(route) = &node.route {
+            validate_routing(flow, node, route)?;
         }
     }
 
+    validate_flow_type(flow)?;
+
+    Ok(())
+}
+
+/// Attempts to resolve the flow schema version from the document.
+///
+/// If no schema marker is present, v1 is assumed for backward compatibility.
+pub fn detect_flow_schema_version(flow: &FlowDocument) -> Result<FlowSchemaVersion> {
+    let hint = flow
+        .schema_version
+        .as_deref()
+        .or(flow.schema_ref.as_deref());
+
+    match hint.map(|raw| raw.trim().to_ascii_lowercase()) {
+        None => Ok(FlowSchemaVersion::V1),
+        Some(ref value) if value == "1" || value == "v1" || value == "flow.v1" => {
+            Ok(FlowSchemaVersion::V1)
+        }
+        Some(value) => Err(UnknownFlowSchemaVersion { found: value }.into()),
+    }
+}
+
+fn detect_flow_type(flow: &FlowDocument) -> FlowType {
+    match flow
+        .r#type
+        .as_deref()
+        .map(|v| v.trim().to_ascii_lowercase())
+    {
+        Some(ref t) if t == "messaging" => FlowType::Messaging,
+        Some(ref t) if t == "events" => FlowType::Events,
+        Some(ref t) if t == "worker" => FlowType::Worker,
+        Some(ref t) if t == "digital_worker" || t == "digital-worker" => FlowType::DigitalWorker,
+        _ => FlowType::Unknown,
+    }
+}
+
+fn validate_flow_type(flow: &FlowDocument) -> Result<()> {
+    match detect_flow_type(flow) {
+        FlowType::Unknown => Ok(()), // soft validation; allow missing type for backward compatibility
+        FlowType::Messaging => {
+            for node in &flow.nodes {
+                if node.kind.starts_with("event.") {
+                    bail!(
+                        "flow '{}' is messaging but contains event node '{}'",
+                        flow.id,
+                        node.id
+                    );
+                }
+            }
+            Ok(())
+        }
+        FlowType::Events => {
+            for node in &flow.nodes {
+                if !node.kind.starts_with("event.") {
+                    bail!(
+                        "flow '{}' is events but contains non-event node '{}'",
+                        flow.id,
+                        node.id
+                    );
+                }
+            }
+            Ok(())
+        }
+        FlowType::Worker => {
+            let has_handoff = flow
+                .nodes
+                .iter()
+                .any(|node| node.kind == "worker.handoff" || node.kind == "worker.invoke");
+            if !has_handoff {
+                bail!(
+                    "flow '{}' is worker but missing worker handoff node",
+                    flow.id
+                );
+            }
+            Ok(())
+        }
+        FlowType::DigitalWorker => {
+            let has_handoff = flow
+                .nodes
+                .iter()
+                .any(|node| node.kind == "worker.handoff" || node.kind == "worker.invoke");
+            if !has_handoff {
+                bail!(
+                    "flow '{}' is digital worker but missing worker handoff/invoke node",
+                    flow.id
+                );
+            }
+            let has_worker_id = flow.nodes.iter().any(|node| {
+                node.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worker_id"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false)
+            });
+            if !has_worker_id {
+                bail!(
+                    "flow '{}' is digital worker but missing worker_id metadata",
+                    flow.id
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_routing(flow: &FlowDocument, node: &FlowNode, routing: &NodeRoute) -> Result<()> {
+    let id_set: HashSet<_> = flow.nodes.iter().map(|n| n.id.as_str()).collect();
+    match routing.route {
+        RouteKind::FollowGraph | RouteKind::ReplyToOrigin | RouteKind::EndFlow => Ok(()),
+        RouteKind::ToNode => {
+            let target = routing
+                .to
+                .as_ref()
+                .and_then(|list| list.first())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "flow '{}' node '{}' route 'to_node' missing target",
+                        flow.id,
+                        node.id
+                    )
+                })?;
+            if !id_set.contains(target.as_str()) {
+                bail!(
+                    "flow '{}' node '{}' routes to missing node '{}'",
+                    flow.id,
+                    node.id,
+                    target
+                );
+            }
+            Ok(())
+        }
+        RouteKind::ToNodes => {
+            let targets = routing.to.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "flow '{}' node '{}' route 'to_nodes' missing targets",
+                    flow.id,
+                    node.id
+                )
+            })?;
+            for target in targets {
+                if !id_set.contains(target.as_str()) {
+                    bail!(
+                        "flow '{}' node '{}' routes to missing node '{}'",
+                        flow.id,
+                        node.id,
+                        target
+                    );
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_mcp_metadata(
+    flow: &FlowDocument,
+    node: &FlowNode,
+    metadata: &serde_json::Value,
+) -> Result<()> {
+    let obj = metadata.as_object().ok_or_else(|| {
+        anyhow::anyhow!(
+            "flow '{}' node '{}' mcp metadata must be object",
+            flow.id,
+            node.id
+        )
+    })?;
+    ensure_field(obj, "tool", flow, node)?;
+    ensure_field(obj, "action", flow, node)?;
+    Ok(())
+}
+
+fn ensure_field(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    flow: &FlowDocument,
+    node: &FlowNode,
+) -> Result<()> {
+    let value = obj
+        .get(field)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "flow '{}' node '{}' mcp node must declare {}",
+                flow.id,
+                node.id,
+                field
+            )
+        })?;
+    let _ = value;
     Ok(())
 }

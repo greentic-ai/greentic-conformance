@@ -36,6 +36,10 @@ pub struct PackSuiteOptions {
     pub require_runtime_match: bool,
     /// Fail when the manifest does not contain a signature block.
     pub require_signature: bool,
+    /// Whether referenced flow/component paths must exist on disk.
+    pub require_artifacts_exist: bool,
+    /// Require supply-chain metadata such as SBOM/attestations.
+    pub require_supply_chain: bool,
 }
 
 impl Default for PackSuiteOptions {
@@ -46,6 +50,8 @@ impl Default for PackSuiteOptions {
             runtime_adapter: None,
             require_runtime_match: true,
             require_signature: true,
+            require_artifacts_exist: false,
+            require_supply_chain: false,
         }
     }
 }
@@ -65,13 +71,41 @@ impl std::fmt::Debug for PackSuiteOptions {
             )
             .field("require_runtime_match", &self.require_runtime_match)
             .field("require_signature", &self.require_signature)
+            .field("require_artifacts_exist", &self.require_artifacts_exist)
+            .field("require_supply_chain", &self.require_supply_chain)
             .finish()
     }
 }
 
 /// Manifest describing a Greentic pack component.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct PackManifest {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub flow_types: Vec<String>,
+    #[serde(default)]
+    pub runner_version: Option<String>,
+    #[serde(default)]
+    pub flow_files: Vec<String>,
+    #[serde(default)]
+    pub components: Vec<String>,
+    #[serde(default)]
+    pub secrets: Vec<String>,
+    #[serde(default)]
+    pub sbom: Option<String>,
+    #[serde(default)]
+    pub attestations: Vec<String>,
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
     #[serde(default)]
     pub signature: Option<PackSignature>,
     #[serde(default)]
@@ -88,9 +122,11 @@ pub struct PackSignature {
 }
 
 /// Basic metadata for a flow exported by the pack.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct PackExport {
     pub id: String,
+    #[serde(default)]
+    pub path: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]
@@ -102,7 +138,47 @@ pub struct PackExport {
 pub struct PackReport {
     pub manifest_path: PathBuf,
     pub manifest: PackManifest,
+    pub schema_version: PackSchemaVersion,
     pub runtime_flows: Option<Vec<String>>,
+    pub warnings: Vec<String>,
+}
+
+/// Supported pack schema versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackSchemaVersion {
+    V1,
+}
+
+/// Error returned when a pack declares an unknown schema version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownPackSchemaVersion {
+    pub found: String,
+}
+
+impl std::fmt::Display for UnknownPackSchemaVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown pack schema version '{}'", self.found)
+    }
+}
+
+impl std::error::Error for UnknownPackSchemaVersion {}
+
+/// Attempts to resolve the pack schema version from the manifest.
+///
+/// If no schema marker is present, v1 is assumed for backward compatibility.
+pub fn detect_pack_schema_version(manifest: &PackManifest) -> Result<PackSchemaVersion> {
+    let hint = manifest
+        .schema_version
+        .as_deref()
+        .or(manifest.schema.as_deref());
+
+    match hint.map(|raw| raw.trim().to_ascii_lowercase()) {
+        None => Ok(PackSchemaVersion::V1),
+        Some(ref value) if value == "1" || value == "v1" || value == "pack.v1" => {
+            Ok(PackSchemaVersion::V1)
+        }
+        Some(value) => Err(UnknownPackSchemaVersion { found: value }.into()),
+    }
 }
 
 /// Primary entrypoint that verifies the pack exports using the default options.
@@ -121,6 +197,8 @@ impl PackSuiteOptions {
             );
         }
 
+        validate_pack_layout(component_path)?;
+
         let manifest_path = resolve_pack_manifest(component_path, self)?;
         let manifest_data = fs::read_to_string(&manifest_path)
             .with_context(|| format!("failed to read manifest {}", manifest_path.display()))?;
@@ -138,8 +216,26 @@ impl PackSuiteOptions {
             })?
         };
 
-        validate_manifest(&manifest, self.require_flows, self.require_signature)
+        let schema_version = detect_pack_schema_version(&manifest)
             .with_context(|| format!("manifest {}", manifest_path.display()))?;
+
+        let manifest_dir = manifest_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let mut warnings = Vec::new();
+
+        validate_manifest(
+            &manifest,
+            self.require_flows,
+            self.require_signature,
+            self.require_artifacts_exist,
+            self.require_supply_chain,
+            &mut warnings,
+            &manifest_dir,
+        )
+        .with_context(|| format!("manifest {}", manifest_path.display()))?;
 
         let runtime_flows = if let Some(adapter) = &self.runtime_adapter {
             let flows = adapter.list_flows(component_path).with_context(|| {
@@ -159,7 +255,9 @@ impl PackSuiteOptions {
         Ok(PackReport {
             manifest_path,
             manifest,
+            schema_version,
             runtime_flows,
+            warnings,
         })
     }
 
@@ -187,6 +285,18 @@ impl PackSuiteOptions {
     /// Allows manifests without signatures (useful for local development).
     pub fn allow_unsigned(mut self) -> Self {
         self.require_signature = false;
+        self
+    }
+
+    /// Require referenced flow/component paths to exist.
+    pub fn require_artifacts(mut self) -> Self {
+        self.require_artifacts_exist = true;
+        self
+    }
+
+    /// Require supply-chain metadata such as SBOM/attestations.
+    pub fn require_supply_chain(mut self) -> Self {
+        self.require_supply_chain = true;
         self
     }
 }
@@ -259,11 +369,72 @@ pub fn resolve_pack_manifest(component_path: &Path, options: &PackSuiteOptions) 
     );
 }
 
+/// Validates optional pack layout folders if present.
+fn validate_pack_layout(component_path: &Path) -> Result<()> {
+    for dir in ["flows", "components", "assets", "schemas", "docs"] {
+        let path = component_path.join(dir);
+        if path.exists() && !path.is_dir() {
+            bail!(
+                "expected '{}' to be a directory when present (found file {})",
+                dir,
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 fn validate_manifest(
     manifest: &PackManifest,
     require_flows: bool,
     require_signature: bool,
+    require_artifacts: bool,
+    require_supply_chain: bool,
+    warnings: &mut Vec<String>,
+    manifest_dir: &Path,
 ) -> Result<()> {
+    let pack_id = manifest
+        .id
+        .as_deref()
+        .or(manifest.name.as_deref())
+        .ok_or_else(|| anyhow::anyhow!("pack manifest must declare an id or name"))?;
+    if pack_id.trim().is_empty() {
+        bail!("pack manifest id/name must not be empty");
+    }
+
+    if manifest
+        .version
+        .as_deref()
+        .map(|v| v.trim().is_empty())
+        .unwrap_or(true)
+    {
+        bail!("pack manifest must declare a non-empty version");
+    }
+
+    if let Some(kind) = &manifest.kind
+        && kind.trim().is_empty()
+    {
+        bail!("pack manifest kind must not be empty when provided");
+    }
+
+    for flow_type in &manifest.flow_types {
+        if flow_type.trim().is_empty() {
+            bail!("pack manifest flow_types entries must not be empty");
+        }
+    }
+
+    if let Some(runner_version) = &manifest.runner_version
+        && runner_version.trim().is_empty()
+    {
+        bail!("pack manifest runner_version must not be empty when provided");
+    }
+
+    for secret in &manifest.secrets {
+        if secret.trim().is_empty() {
+            bail!("pack manifest secrets must not contain empty entries");
+        }
+    }
+
     if require_signature {
         match manifest.signature.as_ref() {
             Some(sig) => {
@@ -275,6 +446,30 @@ fn validate_manifest(
                 }
             }
             None => bail!("pack manifest missing signature block"),
+        }
+    }
+
+    if let Some(sbom) = &manifest.sbom {
+        if sbom.trim().is_empty() {
+            bail!("pack manifest sbom reference must not be empty when provided");
+        }
+    } else if require_supply_chain {
+        bail!("pack manifest missing sbom reference");
+    } else {
+        warnings.push("pack manifest missing sbom reference".to_string());
+    }
+
+    if manifest.attestations.is_empty() {
+        if require_supply_chain {
+            bail!("pack manifest missing attestation references");
+        } else {
+            warnings.push("pack manifest missing attestation references".to_string());
+        }
+    } else {
+        for att in &manifest.attestations {
+            if att.trim().is_empty() {
+                bail!("pack manifest attestations must not contain empty entries");
+            }
         }
     }
 
@@ -290,16 +485,43 @@ fn validate_manifest(
         if !seen_ids.insert(export.id.clone()) {
             bail!("duplicate flow id '{}'", export.id);
         }
-        if let Some(schema) = &export.schema {
-            if !schema.is_object() {
-                bail!(
-                    "flow '{}' schema must be a JSON object when provided",
-                    export.id
-                );
-            }
+        if let Some(schema) = &export.schema
+            && !schema.is_object()
+        {
+            bail!(
+                "flow '{}' schema must be a JSON object when provided",
+                export.id
+            );
+        }
+
+        if require_artifacts && let Some(path) = &export.path {
+            ensure_path_exists(manifest_dir, path, "flow")?;
         }
     }
 
+    if require_artifacts {
+        for flow_path in &manifest.flow_files {
+            ensure_path_exists(manifest_dir, flow_path, "flow")?;
+        }
+
+        for component in &manifest.components {
+            ensure_path_exists(manifest_dir, component, "component")?;
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_path_exists(root: &Path, relative: &str, kind: &str) -> Result<()> {
+    let path = root.join(relative);
+    if !path.exists() {
+        bail!(
+            "{} path '{}' does not exist (resolved to {})",
+            kind,
+            relative,
+            path.display()
+        );
+    }
     Ok(())
 }
 

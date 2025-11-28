@@ -49,6 +49,11 @@ fn pack_suite_runs_with_signed_fixture() -> Result<()> {
     let report = run_suite(PackRunnerSuiteConfig::new(&manifest_path))?;
     assert!(report.pack_report.manifest.signature.is_some());
     assert_eq!(report.pack_report.manifest.flows.len(), 1);
+    // supply-chain fields are missing from this minimal manifest; warnings should surface.
+    assert!(
+        !report.pack_report.warnings.is_empty(),
+        "expected supply-chain warnings when sbom/attestations absent"
+    );
 
     Ok(())
 }
@@ -84,11 +89,23 @@ fn flow_fixture_renders_and_spans_validate() -> Result<()> {
     assertions::assert_idempotent_send(["outbound-message-1"])?;
 
     let mut attrs = HashMap::new();
-    attrs.insert("tenant".to_string(), json!("acme"));
-    attrs.insert("session".to_string(), json!("session-123"));
-    attrs.insert("flow".to_string(), json!("echo-flow"));
-    attrs.insert("node".to_string(), json!("send"));
-    attrs.insert("provider".to_string(), json!("mock"));
+    attrs.insert("service.name".to_string(), json!("greentic-runner"));
+    attrs.insert("greentic.pack.id".to_string(), json!("pack-123"));
+    attrs.insert("greentic.pack.version".to_string(), json!("1.0.0"));
+    attrs.insert("greentic.flow.id".to_string(), json!("echo-flow"));
+    attrs.insert("greentic.node.id".to_string(), json!("send"));
+    attrs.insert(
+        "greentic.component.name".to_string(),
+        json!("component.echo"),
+    );
+    attrs.insert("greentic.component.version".to_string(), json!("0.1.0"));
+    attrs.insert("greentic.tenant.id".to_string(), json!("tenant-acme"));
+    attrs.insert("greentic.team.id".to_string(), json!("team-ops"));
+    attrs.insert("greentic.user.id".to_string(), json!("user-123"));
+    attrs.insert("greentic.session.id".to_string(), json!("session-123"));
+    attrs.insert("greentic.run.status".to_string(), json!("ok"));
+    attrs.insert("greentic.capability".to_string(), json!("flow-execution"));
+    attrs.insert("greentic.artifacts.dir".to_string(), json!("/tmp"));
 
     assertions::assert_span_attrs(&[SpanRecord::new("flow", attrs)])?;
 

@@ -1,0 +1,6 @@
+tenant: "tenant-1"
+team: "team-1"
+user: "user-1"
+packs:
+  - id: "example.pack"
+    version: "1.0.0"

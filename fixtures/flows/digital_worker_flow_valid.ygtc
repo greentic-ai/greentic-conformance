@@ -1,0 +1,11 @@
+id: "digital.worker.flow.valid"
+type: "digital_worker"
+nodes:
+  - id: "ingress"
+    type: "message.receive"
+  - id: "handoff"
+    type: "worker.handoff"
+    metadata:
+      worker_id: "assistant-1"
+  - id: "respond"
+    type: "message.send"

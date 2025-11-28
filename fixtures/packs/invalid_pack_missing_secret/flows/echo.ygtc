@@ -1,0 +1,6 @@
+id: "echo-flow"
+nodes:
+  - id: "start"
+    type: "message.receive"
+  - id: "end"
+    type: "message.send"

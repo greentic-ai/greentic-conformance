@@ -1,0 +1,5 @@
+{
+  "add": "subscriptions/add",
+  "update": "subscriptions/update",
+  "delete": ""
+}

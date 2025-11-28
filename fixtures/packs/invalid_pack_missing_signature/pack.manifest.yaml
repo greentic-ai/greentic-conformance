@@ -1,0 +1,6 @@
+id: "pack.invalid.unsigned"
+version: "1.0.0"
+kind: "component"
+flows:
+  - id: "echo-flow"
+    path: "flows/echo.ygtc"

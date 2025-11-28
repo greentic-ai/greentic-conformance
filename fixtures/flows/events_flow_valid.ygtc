@@ -1,0 +1,10 @@
+id: "events.flow.valid"
+type: "events"
+nodes:
+  - id: "source"
+    type: "event.source"
+  - id: "sink"
+    type: "event.sink"
+edges:
+  - from: "source"
+    to: "sink"

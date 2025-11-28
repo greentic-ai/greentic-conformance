@@ -1,0 +1,11 @@
+[
+  {
+    "tenant": "tenant-1",
+    "team": "team-1",
+    "user": "user-1",
+    "pack_id": "example.pack",
+    "pack_version": "1.0.0",
+    "enabled": true,
+    "policy": "default"
+  }
+]

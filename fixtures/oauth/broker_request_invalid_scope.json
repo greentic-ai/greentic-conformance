@@ -1,0 +1,5 @@
+{
+  "tenant": "tenant-1",
+  "resource_ref": "resource://example",
+  "scopes": [""]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "events.flow.invalid",
+  "nodes": [
+    {
+      "id": "source",
+      "type": "event.source",
+      "topic": "greentic.repo.*"
+    }
+  ]
+}

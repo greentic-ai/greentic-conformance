@@ -1,0 +1,5 @@
+{
+  "tools": [
+    { "name": "echo", "description": "echo tool" }
+  ]
+}

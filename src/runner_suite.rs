@@ -243,15 +243,15 @@ impl RunnerOptions {
                         stdout
                     )
                 })?;
-                if let Some(expected) = &expectation.expected_egress {
-                    if !json_contains(&parsed, expected) {
-                        bail!(
-                            "runner '{}' stdout does not contain expected egress\nexpected: {}\nactual: {}",
-                            host_bin.display(),
-                            expected,
-                            parsed
-                        );
-                    }
+                if let Some(expected) = &expectation.expected_egress
+                    && !json_contains(&parsed, expected)
+                {
+                    bail!(
+                        "runner '{}' stdout does not contain expected egress\nexpected: {}\nactual: {}",
+                        host_bin.display(),
+                        expected,
+                        parsed
+                    );
                 }
                 stdout_json = Some(parsed);
             }

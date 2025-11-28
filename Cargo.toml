@@ -3,22 +3,22 @@ members = ["crates/oauth-mock"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "0.4.0"
 edition = "2024"
-rust-version = "1.86"
+rust-version = "1.89"
 
 [workspace.dependencies]
 anyhow = "1"
 assert_cmd = "2"
-axum = { version = "0.7", features = ["macros", "json"] }
+axum = { version = "0.8", features = ["macros", "json"] }
 base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-greentic-interfaces = { version = ">=0.1, <1" }
-greentic-oauth = { version = ">=0.1, <1" }
-greentic-pack = { version = ">=0.1, <1" }
-greentic-runner = { version = ">=0.1, <1" }
-greentic-secrets = { version = ">=0.1, <1" }
-greentic-types = { version = ">=0.1, <1" }
+greentic-interfaces = { version = "0.4" }
+greentic-oauth-sdk = { version = "0.4" }
+greentic-pack = { version = "0.4" }
+greentic-runner = { version = "0.4" }
+greentic-secrets = { version = "0.4" }
+greentic-types = { version = "0.4" }
 handlebars = "6"
 josekit = { version = "0.10" }
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
@@ -31,6 +31,7 @@ rsa = { version = "0.9", features = ["pem"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_bw = "2"
+semver = "1"
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
@@ -68,19 +69,20 @@ base64 = { workspace = true }
 walkdir = { workspace = true }
 axum = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
+semver = { workspace = true }
 
 greentic-types = { workspace = true }
 greentic-interfaces = { workspace = true, optional = true }
 greentic-runner = { workspace = true, optional = true }
 greentic-pack = { workspace = true, optional = true }
 greentic-secrets = { workspace = true, optional = true }
-greentic-oauth = { workspace = true, optional = true }
+greentic-oauth-sdk = { workspace = true, optional = true }
 
 [features]
 default = []
 runner = ["dep:greentic-runner", "dep:greentic-pack"]
 policy = ["dep:greentic-secrets", "dep:greentic-interfaces"]
-oauth = ["dep:greentic-oauth", "dep:axum", "dep:reqwest"]
+oauth = ["dep:greentic-oauth-sdk", "dep:axum", "dep:reqwest"]
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
@@ -96,7 +98,3 @@ sha2 = { workspace = true }
 url = { workspace = true }
 jsonwebtoken = { workspace = true }
 time = { workspace = true }
-
-[patch.crates-io]
-greentic-oauth = { path = "vendor/greentic-oauth" }
-greentic-pack = { path = "vendor/greentic-pack" }

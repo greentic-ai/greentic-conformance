@@ -1,0 +1,14 @@
+id: "worker.flow.valid"
+type: "worker"
+nodes:
+  - id: "ingress"
+    type: "message.receive"
+  - id: "handoff"
+    type: "worker.handoff"
+  - id: "respond"
+    type: "message.send"
+edges:
+  - from: "ingress"
+    to: "handoff"
+  - from: "handoff"
+    to: "respond"

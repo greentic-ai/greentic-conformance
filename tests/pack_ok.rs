@@ -12,6 +12,8 @@ fn pack_manifest_is_valid() {
 
     let manifest_path = temp.path().join("pack.manifest.json");
     let manifest = PackManifest {
+        id: Some("example.pack".into()),
+        version: Some("1.0.0".into()),
         signature: Some(PackSignature {
             kind: "mock".into(),
             public_key: "mock-public-key".into(),
@@ -24,7 +26,9 @@ fn pack_manifest_is_valid() {
                 "input": { "type": "object" },
                 "output": { "type": "object" }
             })),
+            ..PackExport::default()
         }],
+        ..PackManifest::default()
     };
 
     let mut file = File::create(&manifest_path).unwrap();

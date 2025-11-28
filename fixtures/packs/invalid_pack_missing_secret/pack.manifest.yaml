@@ -1,0 +1,8 @@
+id: "pack.invalid.missing-secret"
+version: "1.0.0"
+kind: "component"
+secrets:
+  - ""
+flows:
+  - id: "echo-flow"
+    path: "flows/echo.ygtc"

@@ -1,0 +1,14 @@
+id: "pack.valid"
+version: "1.0.0"
+kind: "component"
+flow_types: ["messaging"]
+runner_version: "1.0.0"
+flows:
+  - id: "echo-flow"
+    path: "flows/echo.ygtc"
+signature:
+  type: "ed25519"
+  public_key: "Zm9v"
+  signature: "YmFy"
+components:
+  - "components/echo.wasm"

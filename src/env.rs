@@ -1,3 +1,4 @@
+use crate::assertions;
 use anyhow::{Result, anyhow};
 use std::env;
 
@@ -54,11 +55,15 @@ impl TenantContext {
             }
         }
 
-        Ok(Self {
+        let ctx = Self {
             tenant_id,
             team_id,
             user_id,
-        })
+        };
+
+        validate_tenant_ctx(&ctx)?;
+
+        Ok(ctx)
     }
 }
 
@@ -68,4 +73,9 @@ pub fn otel_exporter_endpoint() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// Validates a TenantContext using the shared assertions.
+pub fn validate_tenant_ctx(ctx: &TenantContext) -> Result<()> {
+    assertions::assert_valid_tenant_ctx(&ctx.tenant_id, &ctx.team_id, &ctx.user_id)
 }

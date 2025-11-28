@@ -40,8 +40,9 @@ fn missing_schema_can_be_allowed() {
     fs::write(&flow_path, FLOW_WITHOUT_SCHEMA).unwrap();
 
     let err = FlowValidationOptions::default()
+        .require_schema(true)
         .validate_flow_folder(temp.path())
-        .expect_err("default options should reject missing schema");
+        .expect_err("explicit schema requirement should reject missing schema");
     let message = format!("{err:#}");
     assert!(
         message.contains("must declare a schema"),

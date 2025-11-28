@@ -29,15 +29,20 @@ mod pack_suite;
 mod runner_suite;
 
 pub use component_suite::{
-    ComponentInvocation, ComponentInvocationOptions, invoke_generic_component,
+    ComponentInvocation, ComponentInvocationOptions, assert_allowed_worlds,
+    assert_valid_tool_invocation, invoke_generic_component,
 };
+pub mod deployer_suite;
+pub mod events_suite;
+pub mod oauth_broker_suite;
+pub mod repo_store_suite;
 pub use flow_suite::{
-    FlowDocument, FlowNode, FlowValidationOptions, FlowValidationReport, FlowValidator,
-    validate_flow_folder,
+    FlowDocument, FlowNode, FlowSchemaVersion, FlowValidationOptions, FlowValidationReport,
+    FlowValidator, detect_flow_schema_version, validate_flow_folder,
 };
 pub use pack_suite::{
-    PackExport, PackManifest, PackReport, PackRuntimeAdapter, PackSignature, PackSuiteOptions,
-    resolve_pack_manifest, verify_pack_exports,
+    PackExport, PackManifest, PackReport, PackRuntimeAdapter, PackSchemaVersion, PackSignature,
+    PackSuiteOptions, detect_pack_schema_version, resolve_pack_manifest, verify_pack_exports,
 };
 pub use runner_suite::{
     RunnerExpectation, RunnerOptions, RunnerReport, RunnerSnapshot, smoke_run_with_mocks,

@@ -8,6 +8,7 @@ pub enum ProviderKind {
     GitHub,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
@@ -19,6 +20,7 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
+    #[allow(dead_code)]
     pub fn is_live(&self) -> bool {
         !matches!(self.kind, ProviderKind::Mock)
     }
