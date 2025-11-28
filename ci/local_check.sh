@@ -146,11 +146,6 @@ live_oauth_providers() {
   printf '%s' "${detected[*]-}"
 }
 
-COMPOSE_FILE="ci/docker/compose.conformance.yml"
-RUN_PLAN_SCRIPT="ci/scripts/run_conformance_plan.sh"
-COLLECT_SCRIPT="ci/scripts/collect_reports.sh"
-WAIT_SCRIPT="ci/scripts/wait_for.sh"
-
 HAS_OAUTH_TEST=0
 [[ -f tests/oauth.rs ]] && HAS_OAUTH_TEST=1
 HAS_AZURE_TEST=0
@@ -206,59 +201,13 @@ if (( HAS_GOOGLE_TEST )); then
   run_or_skip "Provider Google smoke" @online cargo @env=GOOGLE_SA_JSON_B64 -- env CI=1 cargo test -- --ignored --test-threads=1 provider_google
 fi
 
-if [[ -f "$RUN_PLAN_SCRIPT" && -f "$COMPOSE_FILE" ]]; then
-  run_or_skip "OIDF conformance stack (rp-code-pkce-basic)" @online docker @file="$COMPOSE_FILE" @file="$RUN_PLAN_SCRIPT" @file="$WAIT_SCRIPT" -- \
-    env COMPOSE_FILE="$COMPOSE_FILE" RUN_PLAN_SCRIPT="$RUN_PLAN_SCRIPT" COLLECT_SCRIPT="$COLLECT_SCRIPT" WAIT_SCRIPT="$WAIT_SCRIPT" PLAN_ID=rp-code-pkce-basic \
-        SUITE_BASE="${SUITE_BASE:-https://localhost:8443}" RP_BASE_URL="${RP_BASE_URL:-http://localhost:8080}" SUITE_API_KEY="${SUITE_API_KEY:-ci-dev-token}" bash -c '
-      set -euo pipefail
-      docker compose -f "$COMPOSE_FILE" up -d --wait
-      cleanup() {
-        docker compose -f "$COMPOSE_FILE" down --volumes >/dev/null 2>&1 || true
-      }
-      trap cleanup EXIT
-      bash "$WAIT_SCRIPT" https://localhost:8443/health 180
-      bash "$RUN_PLAN_SCRIPT" rp-code-pkce-basic
-      if [[ -f "$COLLECT_SCRIPT" ]]; then
-        bash "$COLLECT_SCRIPT"
-      fi
-    '
+if has_make_target conformance.plan; then
+  run_or_skip "Hosted OIDF plan (make conformance.plan)" @online make @env=CS_TOKEN -- make conformance.plan
 else
-  record_skip "OIDF conformance stack" "compose or runner scripts missing"
+  record_skip "Hosted OIDF plan (make conformance.plan)" "make target missing"
 fi
 
-if [[ "$LOCAL_CHECK_STRICT" == "1" ]]; then
-  if [[ -f "$RUN_PLAN_SCRIPT" && -f "$COMPOSE_FILE" ]]; then
-    for plan in rp-fapi1-advanced rp-fapi2-message-signing rp-par-jar-dpop; do
-      run_or_skip "FAPI nightly plan ${plan}" @online docker @file="$COMPOSE_FILE" @file="$RUN_PLAN_SCRIPT" @file="$WAIT_SCRIPT" -- \
-        env COMPOSE_FILE="$COMPOSE_FILE" RUN_PLAN_SCRIPT="$RUN_PLAN_SCRIPT" COLLECT_SCRIPT="$COLLECT_SCRIPT" WAIT_SCRIPT="$WAIT_SCRIPT" PLAN_ID="$plan" \
-            SUITE_BASE="${SUITE_BASE:-https://localhost:8443}" RP_BASE_URL="${RP_BASE_URL:-http://localhost:8080}" SUITE_API_KEY="${SUITE_API_KEY:-ci-dev-token}" \
-            FINANCIAL_API="${FINANCIAL_API:-true}" bash -c '
-          set -euo pipefail
-          docker compose -f "$COMPOSE_FILE" up -d --wait
-          cleanup() {
-            docker compose -f "$COMPOSE_FILE" down --volumes >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          bash "$WAIT_SCRIPT" https://localhost:8443/health 300
-          bash "$RUN_PLAN_SCRIPT" "$PLAN_ID"
-          if [[ -f "$COLLECT_SCRIPT" ]]; then
-            bash "$COLLECT_SCRIPT"
-          fi
-        '
-    done
-  else
-    record_skip "FAPI nightly plans" "compose or runner scripts missing"
-  fi
-else
-  record_skip "FAPI nightly plans" "enable LOCAL_CHECK_STRICT=1"
-fi
-
-if has_make_target conformance.full; then
-  run_or_skip "Hosted OIDF plan (make conformance.full)" @online make jq curl python3 -- make conformance.full
-else
-  record_skip "Hosted OIDF plan (make conformance.full)" "make target missing"
-fi
-
+# Strict mode optionally re-runs the hosted plan with an explicit PLAN_ID/CS_TOKEN.
 if [[ "$LOCAL_CHECK_STRICT" == "1" ]]; then
   if [[ -z "${PLAN_ID:-}" || -z "${CS_TOKEN:-}" ]]; then
     record_skip "Hosted OIDF plan (tunnel)" "set PLAN_ID and CS_TOKEN in .env to run"

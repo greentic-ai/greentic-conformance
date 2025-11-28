@@ -10,3 +10,4 @@ reports/
 ci/env/conformance.hosted.env
 .rustup/
 .cargo/
+.DS_Store

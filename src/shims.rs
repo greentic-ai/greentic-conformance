@@ -6,7 +6,7 @@ pub mod runner {
 
 #[cfg(feature = "policy")]
 pub mod policy {
-    pub use greentic_interfaces as interfaces;
+    pub use greentic_interfaces_host as interfaces;
     pub use greentic_secrets as secrets;
 }
 

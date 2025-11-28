@@ -3,7 +3,7 @@ members = ["crates/oauth-mock"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.3"
 edition = "2024"
 rust-version = "1.89"
 
@@ -13,12 +13,12 @@ assert_cmd = "2"
 axum = { version = "0.8", features = ["macros", "json"] }
 base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-greentic-interfaces = { version = "0.4" }
-greentic-oauth-sdk = { version = "0.4" }
-greentic-pack = { version = "0.4" }
-greentic-runner = { version = "0.4" }
-greentic-secrets = { version = "0.4" }
-greentic-types = { version = "0.4" }
+greentic-interfaces = { version = ">=0.1, <1" }
+greentic-oauth = { version = ">=0.1, <1" }
+greentic-pack = { version = ">=0.1, <1" }
+greentic-runner = { version = ">=0.1, <1" }
+greentic-secrets = { version = ">=0.1, <1" }
+greentic-types = { version = ">=0.1, <1" }
 handlebars = "6"
 josekit = { version = "0.10" }
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
@@ -42,6 +42,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "regist
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
+clap = { version = "4", features = ["derive"] }
 
 [package]
 name = "greentic-conformance"
@@ -69,12 +70,12 @@ base64 = { workspace = true }
 walkdir = { workspace = true }
 axum = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
-semver = { workspace = true }
 
 greentic-types = { workspace = true }
-greentic-interfaces = { workspace = true, optional = true }
+greentic-interfaces-host = { workspace = true, optional = true }
+greentic-interfaces-guest = { workspace = true, optional = true }
 greentic-runner = { workspace = true, optional = true }
-greentic-pack = { workspace = true, optional = true }
+greentic-pack = { workspace = true }
 greentic-secrets = { workspace = true, optional = true }
 greentic-oauth-sdk = { workspace = true, optional = true }
 
@@ -82,7 +83,7 @@ greentic-oauth-sdk = { workspace = true, optional = true }
 default = []
 runner = ["dep:greentic-runner", "dep:greentic-pack"]
 policy = ["dep:greentic-secrets", "dep:greentic-interfaces"]
-oauth = ["dep:greentic-oauth-sdk", "dep:axum", "dep:reqwest"]
+oauth = ["dep:greentic-oauth", "dep:axum", "dep:reqwest"]
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

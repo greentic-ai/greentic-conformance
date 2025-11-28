@@ -10,6 +10,7 @@ pub enum ProviderKind {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
     pub client_id: Option<String>,
@@ -19,6 +20,7 @@ pub struct ProviderConfig {
     pub live_enabled: bool,
 }
 
+#[allow(dead_code)]
 impl ProviderConfig {
     #[allow(dead_code)]
     pub fn is_live(&self) -> bool {
