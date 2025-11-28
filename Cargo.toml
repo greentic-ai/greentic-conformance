@@ -14,6 +14,8 @@ axum = { version = "0.8", features = ["macros", "json"] }
 base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 greentic-interfaces = { version = "0.4" }
+greentic-interfaces-host = { version = "0.4" }
+greentic-interfaces-guest = { version = "0.4" }
 greentic-oauth-sdk = { version = "0.4" }
 greentic-pack = { version = "0.4" }
 greentic-runner = { version = "0.4" }
@@ -71,8 +73,10 @@ walkdir = { workspace = true }
 axum = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 semver = { workspace = true }
+clap = { workspace = true }
 
 greentic-types = { workspace = true }
+greentic-interfaces = { workspace = true, optional = true }
 greentic-interfaces-host = { workspace = true, optional = true }
 greentic-interfaces-guest = { workspace = true, optional = true }
 greentic-runner = { workspace = true, optional = true }
@@ -83,7 +87,7 @@ greentic-oauth-sdk = { workspace = true, optional = true }
 
 [features]
 default = []
-runner = ["dep:greentic-runner", "dep:greentic-pack"]
+runner = ["dep:greentic-runner"]
 policy = ["dep:greentic-secrets", "dep:greentic-interfaces"]
 oauth = ["dep:greentic-oauth-sdk", "dep:axum", "dep:reqwest"]
 
