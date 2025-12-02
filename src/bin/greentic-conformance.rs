@@ -7,7 +7,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand, ValueEnum};
 use greentic_conformance::{
-    FlowValidationOptions, PackSuiteOptions, RunnerExpectation, RunnerOptions,
+    ComponentInvocationOptions, FlowValidationOptions, PackSuiteOptions, RunnerExpectation,
+    RunnerOptions,
 };
 use greentic_pack::{PackLoad, SigningPolicy, builder::PackMeta, open_pack};
 use serde::Serialize;
@@ -40,18 +41,19 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
-    /// Placeholder for flow validation (to be implemented).
     CheckFlow {
         /// Path to a folder containing flow definitions.
         path: PathBuf,
         /// Allow flows without an inline schema block.
         #[arg(long)]
         allow_missing_schema: bool,
+        /// Additional file extensions to allow (case-insensitive).
+        #[arg(long, value_name = "EXT", action = clap::ArgAction::Append)]
+        allow_extension: Vec<String>,
         /// Output format (json or text).
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
-    /// Placeholder for component validation (to be implemented).
     CheckComponent {
         /// Path to a component binary.
         path: PathBuf,
@@ -67,11 +69,28 @@ enum Commands {
         /// Allow unsigned manifests (skip signature requirement).
         #[arg(long)]
         allow_unsigned: bool,
+        /// Additional args to pass to the component invocation when --operation is set.
+        #[arg(long, value_name = "ARG", action = clap::ArgAction::Append)]
+        arg: Vec<String>,
+        /// Environment variables to set for the component (KEY=VALUE).
+        #[arg(long, value_name = "KEY=VALUE", action = clap::ArgAction::Append)]
+        env: Vec<String>,
+        /// Working directory to run the component in.
+        #[arg(long)]
+        workdir: Option<PathBuf>,
+        /// Optional operation to invoke on the component (enables stdin/exec validation).
+        #[arg(long)]
+        operation: Option<String>,
+        /// JSON payload forwarded to the component when --operation is set.
+        #[arg(long)]
+        input: Option<String>,
+        /// Allow non-JSON stdout when invoking a component operation.
+        #[arg(long)]
+        allow_non_json_output: bool,
         /// Output format (json or text).
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
-    /// Placeholder for runner validation (to be implemented).
     CheckRunner {
         /// Path to a runner binary.
         path: PathBuf,
@@ -84,6 +103,18 @@ enum Commands {
         /// Require stdout to be valid JSON.
         #[arg(long)]
         require_json_stdout: bool,
+        /// Optional stdin payload to feed the runner.
+        #[arg(long)]
+        stdin: Option<String>,
+        /// Additional args to pass to the runner after the pack path.
+        #[arg(long, value_name = "ARG", action = clap::ArgAction::Append)]
+        arg: Vec<String>,
+        /// Environment variables to set for the runner (KEY=VALUE).
+        #[arg(long, value_name = "KEY=VALUE", action = clap::ArgAction::Append)]
+        env: Vec<String>,
+        /// Working directory for the runner invocation.
+        #[arg(long)]
+        workdir: Option<PathBuf>,
         /// Expected JSON fragment that must be contained in stdout.
         #[arg(long)]
         expected_egress: Option<String>,
@@ -91,10 +122,15 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
-    /// Placeholder for deployer validation (to be implemented).
     CheckDeployer {
         /// Path to a deployer binary.
         path: PathBuf,
+        /// Optional path to a deployer config to exercise idempotency.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Extra args to pass to the deployer when checking idempotency.
+        #[arg(long, value_name = "ARG", action = clap::ArgAction::Append)]
+        arg: Vec<String>,
         /// Output format (json or text).
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -121,6 +157,7 @@ struct ComponentCheckReport {
     component: String,
     component_v1_wit_only: bool,
     component_v1_hosted: bool,
+    invoked_operation: Option<String>,
     issues: Vec<String>,
     warnings: Vec<String>,
 }
@@ -137,6 +174,7 @@ struct RunnerCheckReport {
 struct DeployerCheckReport {
     deployer: String,
     deployer_v1: bool,
+    idempotent_ok: Option<bool>,
     issues: Vec<String>,
     warnings: Vec<String>,
 }
@@ -169,9 +207,10 @@ fn main() -> Result<()> {
         Commands::CheckFlow {
             path,
             allow_missing_schema,
+            allow_extension,
             format,
         } => {
-            let report = check_flow(&path, allow_missing_schema)
+            let report = check_flow(&path, allow_missing_schema, &allow_extension)
                 .with_context(|| format!("failed to check flows at {}", path.display()))?;
             emit_flow_report(report, format)?;
         }
@@ -181,6 +220,12 @@ fn main() -> Result<()> {
             manifest,
             allow_runtime_mismatch,
             allow_unsigned,
+            arg,
+            env,
+            workdir,
+            operation,
+            input,
+            allow_non_json_output,
             format,
         } => {
             let report = check_component(
@@ -189,6 +234,12 @@ fn main() -> Result<()> {
                 manifest.as_deref(),
                 allow_runtime_mismatch,
                 allow_unsigned,
+                &arg,
+                &env,
+                workdir.as_deref(),
+                operation.as_deref(),
+                input.as_deref(),
+                allow_non_json_output,
             )?;
             emit_component_report(report, format)?;
         }
@@ -197,6 +248,10 @@ fn main() -> Result<()> {
             pack,
             allow_failure,
             require_json_stdout,
+            stdin,
+            arg,
+            env,
+            workdir,
             expected_egress,
             format,
         } => {
@@ -205,12 +260,21 @@ fn main() -> Result<()> {
                 pack.as_deref(),
                 allow_failure,
                 require_json_stdout,
+                stdin.as_deref(),
+                &arg,
+                &env,
+                workdir.as_deref(),
                 expected_egress.as_deref(),
             )?;
             emit_runner_report(report, format)?;
         }
-        Commands::CheckDeployer { path, format } => {
-            let report = check_deployer(&path)?;
+        Commands::CheckDeployer {
+            path,
+            config,
+            arg,
+            format,
+        } => {
+            let report = check_deployer(&path, config.as_deref(), &arg)?;
             emit_deployer_report(report, format)?;
         }
     }
@@ -381,10 +445,17 @@ fn check_pack(
     })
 }
 
-fn check_flow(path: &Path, allow_missing_schema: bool) -> Result<FlowCheckReport> {
-    let mut options = FlowValidationOptions::default();
+fn check_flow(
+    path: &Path,
+    allow_missing_schema: bool,
+    allow_extension: &[String],
+) -> Result<FlowCheckReport> {
+    let mut options = FlowValidationOptions::default().require_schema(true);
     if allow_missing_schema {
         options = options.allow_missing_schema();
+    }
+    for ext in allow_extension {
+        options = options.allow_extension(ext);
     }
     let require_schema = options.require_schema;
 
@@ -406,12 +477,19 @@ fn check_flow(path: &Path, allow_missing_schema: bool) -> Result<FlowCheckReport
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_component(
     path: &Path,
     runtime_flows: Option<&str>,
     manifest: Option<&Path>,
     allow_runtime_mismatch: bool,
     allow_unsigned: bool,
+    args: &[String],
+    env: &[String],
+    workdir: Option<&Path>,
+    operation: Option<&str>,
+    input: Option<&str>,
+    allow_non_json_output: bool,
 ) -> Result<ComponentCheckReport> {
     let mut issues = Vec::new();
     let mut warnings = Vec::new();
@@ -427,9 +505,26 @@ fn check_component(
     if !is_executable(&metadata, path) {
         warnings.push("component file is not marked executable".to_string());
     }
+    if let Some(dir) = workdir
+        && !dir.exists()
+    {
+        issues.push(format!(
+            "component working directory '{}' does not exist",
+            dir.display()
+        ));
+    }
+
+    let env_overrides = match parse_env_vars(env) {
+        Ok(vars) => vars,
+        Err(err) => {
+            issues.push(err.to_string());
+            Vec::new()
+        }
+    };
 
     let mut component_v1_wit_only = issues.is_empty();
     let mut component_v1_hosted = issues.is_empty();
+    let mut invoked_operation = None;
     if issues.is_empty() {
         let adapter = runtime_flows
             .map(|raw| -> Result<_> {
@@ -479,6 +574,31 @@ fn check_component(
             }
         }
 
+        if let Some(op) = operation {
+            let input = input.unwrap_or("{}");
+            let mut invocation = ComponentInvocationOptions::default();
+            for arg in args {
+                invocation = invocation.add_arg(arg.clone());
+            }
+            for (key, value) in &env_overrides {
+                invocation = invocation.add_env(key.clone(), value.clone());
+            }
+            if let Some(dir) = workdir {
+                invocation = invocation.with_working_dir(dir);
+            }
+            if allow_non_json_output {
+                invocation = invocation.allow_non_json_output();
+            }
+            match invocation.invoke_generic_component(path, op, input) {
+                Ok(_) => invoked_operation = Some(op.to_string()),
+                Err(err) => {
+                    issues.push(format!("component invocation failed: {err}"));
+                    component_v1_hosted = false;
+                    component_v1_wit_only = false;
+                }
+            }
+        }
+
         if component_v1_hosted && !component_v1_wit_only {
             component_v1_hosted = false;
         }
@@ -488,16 +608,22 @@ fn check_component(
         component: path.display().to_string(),
         component_v1_wit_only,
         component_v1_hosted,
+        invoked_operation,
         issues,
         warnings,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_runner(
     path: &Path,
     pack_path: Option<&Path>,
     allow_failure: bool,
     require_json_stdout: bool,
+    stdin: Option<&str>,
+    args: &[String],
+    env: &[String],
+    workdir: Option<&Path>,
     expected_egress: Option<&str>,
 ) -> Result<RunnerCheckReport> {
     let mut issues = Vec::new();
@@ -514,6 +640,22 @@ fn check_runner(
     if !is_executable(&metadata, path) {
         warnings.push("runner file is not marked executable".to_string());
     }
+    if let Some(dir) = workdir
+        && !dir.exists()
+    {
+        issues.push(format!(
+            "runner working directory '{}' does not exist",
+            dir.display()
+        ));
+    }
+
+    let env_overrides = match parse_env_vars(env) {
+        Ok(vars) => vars,
+        Err(err) => {
+            issues.push(err.to_string());
+            Vec::new()
+        }
+    };
 
     let mut runner_v1 = issues.is_empty();
 
@@ -542,7 +684,19 @@ fn check_runner(
                 expectation = expectation.with_expected_egress(parsed);
             }
 
-            let options = RunnerOptions::default().with_expectation(expectation);
+            let mut options = RunnerOptions::default().with_expectation(expectation);
+            if let Some(stdin_payload) = stdin {
+                options = options.with_stdin(stdin_payload.to_string());
+            }
+            for arg in args {
+                options = options.add_arg(arg.clone());
+            }
+            for (key, value) in &env_overrides {
+                options = options.add_env(key.clone(), value.clone());
+            }
+            if let Some(dir) = workdir {
+                options = options.with_working_dir(dir);
+            }
             match options.smoke_run_with_mocks(path, &pack_path) {
                 Ok(_) => runner_v1 = true,
                 Err(err) => {
@@ -569,7 +723,11 @@ fn check_runner(
     })
 }
 
-fn check_deployer(path: &Path) -> Result<DeployerCheckReport> {
+fn check_deployer(
+    path: &Path,
+    config: Option<&Path>,
+    extra_args: &[String],
+) -> Result<DeployerCheckReport> {
     let mut issues = Vec::new();
     let mut warnings = Vec::new();
 
@@ -602,12 +760,55 @@ fn check_deployer(path: &Path) -> Result<DeployerCheckReport> {
         }
     }
 
+    let mut idempotent_ok = None;
+    if issues.is_empty() {
+        if let Some(cfg) = config {
+            if !cfg.exists() {
+                issues.push(format!(
+                    "deployer config '{}' does not exist",
+                    cfg.display()
+                ));
+            } else {
+                let args: Vec<&str> = extra_args.iter().map(|s| s.as_str()).collect();
+                match greentic_conformance::deployer_suite::assert_deployer_idempotent(
+                    path, cfg, &args,
+                ) {
+                    Ok(_) => idempotent_ok = Some(true),
+                    Err(err) => {
+                        idempotent_ok = Some(false);
+                        issues.push(format!("deployer idempotency failed: {err}"));
+                    }
+                }
+            }
+        } else {
+            warnings.push(
+                "config not provided; only ran --help smoke check, idempotency not verified"
+                    .to_string(),
+            );
+        }
+    }
+
     Ok(DeployerCheckReport {
         deployer: path.display().to_string(),
         deployer_v1: issues.is_empty(),
+        idempotent_ok,
         issues,
         warnings,
     })
+}
+
+fn parse_env_vars(vars: &[String]) -> Result<Vec<(String, String)>> {
+    vars.iter()
+        .map(|raw| {
+            let (key, value) = raw
+                .split_once('=')
+                .ok_or_else(|| anyhow!("env override must be KEY=VALUE (got '{raw}')"))?;
+            if key.trim().is_empty() {
+                return Err(anyhow!("env override key must not be empty (from '{raw}')"));
+            }
+            Ok((key.to_string(), value.to_string()))
+        })
+        .collect()
 }
 
 fn is_executable(metadata: &fs::Metadata, path: &Path) -> bool {

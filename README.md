@@ -204,6 +204,29 @@ The suites never enable network access implicitly. To opt-in for online checks (
 - The runner suite forces mock-mode env vars by default; chain helpers like `.add_arg`, `.add_env`, and `.with_expectation` on `RunnerOptions` to tailor each smoke test.
 - The component suite pipes JSON input via stdin and, by default, asserts that stdout is valid JSON. Call `.allow_non_json_output()` on `ComponentInvocationOptions` if your component returns another format.
 
+### CLI Utility
+
+The `greentic-conformance` CLI wraps the same suites for quick checks:
+
+```bash
+# Validate flows, allowing an extra extension
+cargo run --bin greentic-conformance -- check-flow --path ./flows --allow-extension flow
+
+# Validate a component and invoke an operation with JSON input and env overrides
+cargo run --bin greentic-conformance -- check-component ./target/debug/example-component \
+  --operation echo --input '{"message":"hello"}' \
+  --arg --verbose --env LOG_LEVEL=debug --workdir ./tmp
+
+# Smoke-test a runner with custom args/env/stdin
+cargo run --bin greentic-conformance -- check-runner ./target/debug/greentic-runner \
+  --pack ./packs/example --arg --mode --arg test --stdin '{"ping":true}' \
+  --env OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+
+# Verify deployer idempotency against a config
+cargo run --bin greentic-conformance -- check-deployer ./target/debug/greentic-deployer \
+  --config ./fixtures/deployer/tenant_config_dev.yaml --arg --dry-run
+```
+
 ## Development
 
 - `cargo fmt` – style the codebase
