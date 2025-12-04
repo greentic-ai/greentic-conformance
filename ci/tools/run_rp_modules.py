@@ -12,25 +12,27 @@ import urllib.request
 
 ACCEPTABLE_RESULTS = {"PASSED", "WARNING", "REVIEW", "SKIPPED"}
 ALLOWED_SCHEMES = {"http", "https"}
-ALLOWED_HOSTS: Iterable[str] | None = None  # e.g. {"rp.internal", "localhost"}
+ALLOWED_HOSTS_ENV = os.getenv("CONFORMANCE_ALLOWED_HOSTS", "")
+ALLOWED_HOSTS = {h.strip() for h in ALLOWED_HOSTS_ENV.split(",") if h.strip()}
 
 
-def validate_url(url: str, allowed_hosts: Iterable[str] | None = ALLOWED_HOSTS) -> str:
+def validate_url(url: str, allowed_hosts: Iterable[str] = ALLOWED_HOSTS) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
-        raise ValueError(f"Unsupported URL scheme for RP URL: {parsed.scheme!r}")
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme!r}")
     if not parsed.netloc:
-        raise ValueError("RP URL must include a host")
+        raise ValueError("URL must include a host")
 
-    if allowed_hosts is not None:
+    if allowed_hosts:
         host = parsed.hostname or ""
         if host not in allowed_hosts:
             raise ValueError(f"Host {host!r} is not in the allowed host list")
 
-    return url
+    return parsed.geturl()
 
 
 def build_client(base_url, token, *, insecure=False):
+    base_url = validate_url(base_url).rstrip("/") + "/"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -105,6 +107,7 @@ def start_module(client, module_id):
 
 
 def trigger_rp(trigger_url, module_id, alias, issuer, *, insecure=False):
+    trigger_url = validate_url(trigger_url)
     payload = json.dumps({
         "module_id": module_id,
         "alias": alias,
