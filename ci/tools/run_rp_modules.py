@@ -5,14 +5,32 @@ import os
 import ssl
 import sys
 import time
+from typing import Iterable
 import urllib.error
 import urllib.parse
 import urllib.request
 
 ACCEPTABLE_RESULTS = {"PASSED", "WARNING", "REVIEW", "SKIPPED"}
+ALLOWED_SCHEMES = {"http", "https"}
+
+
+def validate_url(url: str, allowed_hosts: Iterable[str] | None = None) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ALLOWED_SCHEMES:
+        raise ValueError(f"Unsupported URL scheme for RP URL: {parsed.scheme!r}")
+    if not parsed.netloc:
+        raise ValueError("RP URL must include a host")
+
+    if allowed_hosts is not None:
+        host = parsed.hostname or ""
+        if host not in allowed_hosts:
+            raise ValueError(f"Host {host!r} is not in the allowed host list")
+
+    return url
 
 
 def build_client(base_url, token, *, insecure=False):
+    base_url = validate_url(base_url)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -21,7 +39,7 @@ def build_client(base_url, token, *, insecure=False):
     parsed = urllib.parse.urlparse(base_url)
     use_context = parsed.scheme == "https"
     if use_context:
-        ssl_context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
+        ssl_context = ssl.create_default_context()
     else:
         ssl_context = None
 
@@ -87,6 +105,7 @@ def start_module(client, module_id):
 
 
 def trigger_rp(trigger_url, module_id, alias, issuer, *, insecure=False):
+    trigger_url = validate_url(trigger_url)
     payload = json.dumps({
         "module_id": module_id,
         "alias": alias,
@@ -96,7 +115,7 @@ def trigger_rp(trigger_url, module_id, alias, issuer, *, insecure=False):
     req.add_header("Content-Type", "application/json")
     parsed = urllib.parse.urlparse(trigger_url)
     if parsed.scheme == "https":
-        context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
+        context = ssl.create_default_context()
     else:
         context = None
     try:
@@ -207,19 +226,24 @@ def main():
     parser.add_argument("--insecure", action="store_true", help="Skip TLS verification when talking to the suite/RP")
     args = parser.parse_args()
 
-    base_url = args.server.rstrip("/") + "/"
+    if args.insecure:
+        print("[rp-driver] '--insecure' is no longer supported; using secure TLS validation.", flush=True)
+
+    server_url = validate_url(args.server)
+    base_url = server_url.rstrip("/") + "/"
     client = build_client(base_url, args.token, insecure=args.insecure)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     plan_id = read_plan_id(args.plan_id, root)
     print(f"[rp-driver] using plan {plan_id}", flush=True)
 
+    trigger_url = validate_url(args.trigger)
     try:
         success = drive_modules(
             client,
             plan_id=plan_id,
             alias=args.alias,
-            trigger_url=args.trigger,
+            trigger_url=trigger_url,
             server_base=base_url,
             fail_fast=args.fail_fast,
             insecure_trigger=args.insecure,
