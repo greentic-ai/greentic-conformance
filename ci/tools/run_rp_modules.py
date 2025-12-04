@@ -17,6 +17,13 @@ ALLOWED_HOSTS = {h.strip() for h in ALLOWED_HOSTS_ENV.split(",") if h.strip()}
 
 
 def validate_url(url: str, allowed_hosts: Iterable[str] = ALLOWED_HOSTS) -> str:
+    """
+    Validate a URL used by the RP driver:
+    - scheme must be http/https
+    - must include a host
+    - if an allow-list is configured, the host must be in it
+    Returns a normalized URL string.
+    """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
         raise ValueError(f"Unsupported URL scheme: {parsed.scheme!r}")
@@ -38,6 +45,9 @@ def build_client(base_url, token, *, insecure=False):
         "Content-Type": "application/json",
     }
 
+    if insecure:
+        print("[rp-driver] '--insecure' is no longer supported; using secure TLS validation.", flush=True)
+
     parsed = urllib.parse.urlparse(base_url)
     use_context = parsed.scheme == "https"
     if use_context:
@@ -46,6 +56,8 @@ def build_client(base_url, token, *, insecure=False):
         ssl_context = None
 
     def request(method, path, *, params=None, data=None, timeout=30):
+        if "://" in path:
+            raise ValueError(f"Invalid request path: {path!r} must not be a full URL")
         url = urllib.parse.urljoin(base_url, path.lstrip("/"))
         if params:
             query = urllib.parse.urlencode(params, doseq=True)
@@ -227,9 +239,6 @@ def main():
     parser.add_argument("--fail-fast", action="store_true", help="Stop on first module failure")
     parser.add_argument("--insecure", action="store_true", help="Skip TLS verification when talking to the suite/RP")
     args = parser.parse_args()
-
-    if args.insecure:
-        print("[rp-driver] '--insecure' is no longer supported; using secure TLS validation.", flush=True)
 
     server_url = validate_url(args.server)
     base_url = server_url.rstrip("/") + "/"
