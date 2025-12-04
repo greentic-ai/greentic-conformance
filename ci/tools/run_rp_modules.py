@@ -12,9 +12,10 @@ import urllib.request
 
 ACCEPTABLE_RESULTS = {"PASSED", "WARNING", "REVIEW", "SKIPPED"}
 ALLOWED_SCHEMES = {"http", "https"}
+ALLOWED_HOSTS: Iterable[str] | None = None  # e.g. {"rp.internal", "localhost"}
 
 
-def validate_url(url: str, allowed_hosts: Iterable[str] | None = None) -> str:
+def validate_url(url: str, allowed_hosts: Iterable[str] | None = ALLOWED_HOSTS) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
         raise ValueError(f"Unsupported URL scheme for RP URL: {parsed.scheme!r}")
@@ -30,7 +31,6 @@ def validate_url(url: str, allowed_hosts: Iterable[str] | None = None) -> str:
 
 
 def build_client(base_url, token, *, insecure=False):
-    base_url = validate_url(base_url)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -105,7 +105,6 @@ def start_module(client, module_id):
 
 
 def trigger_rp(trigger_url, module_id, alias, issuer, *, insecure=False):
-    trigger_url = validate_url(trigger_url)
     payload = json.dumps({
         "module_id": module_id,
         "alias": alias,
